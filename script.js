@@ -1,184 +1,101 @@
-// --- STATE MANAGEMENT ---
-let user = JSON.parse(localStorage.getItem('growpay_user')) || {
-    name: "", balance: 0, fixed: [], shares: [], history: [], isFixedVisible: false
-};
-
-const save = () => localStorage.setItem('growpay_user', JSON.stringify(user));
-const fmt = (amt) => new Intl.NumberFormat('en-NG', { style: 'currency', currency: 'NGN' }).format(amt);
-
-// --- AUTH FUNCTIONS ---
-function signup() {
-    user.name = document.getElementById('reg-name').value;
-    if (!user.name || document.getElementById('reg-bvn').value.length < 11) return alert("Invalid Details");
-    document.getElementById('signup-form').classList.add('hidden');
-    document.getElementById('dashboard').classList.remove('hidden');
-    updateUI();
+:root {
+    --primary: #00d285; /* OPay Green */
+    --dark: #1a1a1a;
+    --gray: #f4f7f6;
+    --text-muted: #666;
 }
 
-function logout() {
-    localStorage.removeItem('growpay_user');
-    location.reload();
+body {
+    font-family: 'Inter', sans-serif;
+    background-color: var(--gray);
+    margin: 0;
+    color: var(--dark);
 }
 
-function showSection(id) {
-    document.querySelectorAll('.app-section').forEach(s => s.classList.add('hidden'));
-    document.getElementById(id).classList.remove('hidden');
+.container { max-width: 450px; margin: 0 auto; padding: 20px; }
+.hidden { display: none !important; }
+
+/* Auth & Cards */
+.auth-card, .app-section, .card {
+    background: white;
+    padding: 20px;
+    border-radius: 15px;
+    box-shadow: 0 4px 15px rgba(0,0,0,0.05);
+    margin-bottom: 20px;
 }
 
-// --- CORE LOUNGE ---
-function updateUI() {
-    document.getElementById('user-display').innerText = user.name || "User";
-    document.getElementById('avail-bal').innerText = fmt(user.balance);
-    
-    // Fixed Balance Eye Toggle
-    const totalFixed = user.fixed.reduce((a, b) => a + b.amount, 0);
-    document.getElementById('fixed-bal-text').innerText = user.isFixedVisible ? fmt(totalFixed) : "****";
-    
-    renderFixed();
-    renderShares();
-    renderHistory();
-    save();
+input, select {
+    width: 100%;
+    padding: 12px;
+    margin: 10px 0;
+    border: 1px solid #ddd;
+    border-radius: 8px;
+    box-sizing: border-box;
 }
 
-function toggleFixedVisibility() {
-    user.isFixedVisible = !user.isFixedVisible;
-    updateUI();
+button {
+    width: 100%;
+    padding: 12px;
+    border: none;
+    border-radius: 8px;
+    background: var(--primary);
+    color: white;
+    font-weight: bold;
+    cursor: pointer;
 }
 
-// --- ADMIN FUNDING ---
-function openAdminModal() { document.getElementById('admin-modal').classList.remove('hidden'); }
-function closeModal() { document.getElementById('admin-modal').classList.add('hidden'); }
+/* Dashboard */
+nav { display: flex; justify-content: space-between; align-items: center; margin-bottom: 20px; }
+.logo { font-weight: 800; color: var(--primary); font-size: 22px; }
+.balance-cards { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; }
+.main-bal { background: var(--dark); color: white; }
+.fixed-bal { border: 1px solid var(--primary); }
 
-function adminFund() {
-    const pin = document.getElementById('admin-pin').value;
-    const amt = parseFloat(document.getElementById('fund-amt').value);
-    if (pin === "1234" && amt > 0) {
-        user.balance += amt;
-        user.history.unshift({ type: 'Credit', amt, date: new Date().toLocaleString(), ref: 'ADMIN-FUND' });
-        closeModal();
-        updateUI();
-    } else { alert("Wrong PIN or Amount"); }
+.quick-actions {
+    display: grid;
+    grid-template-columns: repeat(4, 1fr);
+    gap: 10px;
+    margin: 20px 0;
+}
+.quick-actions button {
+    background: white;
+    color: var(--dark);
+    font-size: 11px;
+    padding: 10px 5px;
+    box-shadow: 0 2px 5px rgba(0,0,0,0.05);
+}
+.quick-actions i { display: block; font-size: 18px; margin-bottom: 5px; color: var(--primary); }
+
+/* Tables */
+.table-container { overflow-x: auto; margin-top: 15px; }
+table { width: 100%; border-collapse: collapse; font-size: 12px; }
+th, td { text-align: left; padding: 10px; border-bottom: 1px solid #eee; }
+.note { font-size: 10px; color: red; margin-top: 10px; }
+
+/* Receipt Styling (OPay Style) */
+#receipt-overlay {
+    position: fixed; top:0; left:0; width:100%; height:100%;
+    background: rgba(0,0,0,0.8); z-index: 1000;
+    overflow-y: auto; padding: 20px 0;
 }
 
-// --- TRANSFER & RECEIPT ---
-function processTransfer() {
-    const amt = parseFloat(document.getElementById('trans-amount').value);
-    const name = document.getElementById('trans-name').value;
-    const bank = document.getElementById('trans-bank').value;
-    const acc = document.getElementById('trans-acc').value;
-
-    if (amt > user.balance || amt <= 0) return alert("Insufficient Funds");
-
-    user.balance -= amt;
-    const ref = Array.from({length: 24}, () => Math.floor(Math.random() * 10)).join('');
-    const trans = { type: 'Debit', amt, name, bank, acc, ref, date: new Date().toLocaleString(), remark: document.getElementById('trans-remark').value || "None" };
-    
-    user.history.unshift(trans);
-    showReceipt(trans);
-    updateUI();
+#receipt-capture-area {
+    background: white; width: 90%; max-width: 350px;
+    margin: 0 auto; border-radius: 10px; padding: 20px;
 }
 
-function showReceipt(t) {
-    document.getElementById('r-amount').innerText = fmt(t.amt);
-    document.getElementById('r-recipient').innerText = `${t.name} | ${t.bank} | ${t.acc}`;
-    document.getElementById('r-sender').innerText = user.name;
-    document.getElementById('r-ref').innerText = t.ref;
-    document.getElementById('r-date').innerText = t.date;
-    document.getElementById('r-remark').innerText = t.remark;
-    document.getElementById('receipt-overlay').classList.remove('hidden');
+.receipt-header { text-align: center; border-bottom: 1px dashed #ccc; padding-bottom: 15px; }
+.logo-area { color: var(--primary); font-weight: bold; font-size: 20px; }
+.receipt-amount { text-align: center; padding: 20px 0; }
+.status-badge { color: var(--primary); font-weight: bold; }
+.receipt-details .row {
+    display: flex; justify-content: space-between;
+    margin-bottom: 12px; font-size: 13px;
 }
+.receipt-details .label { color: var(--text-muted); }
+.receipt-details .val { font-weight: 600; text-align: right; }
+.legal-text { font-size: 10px; text-align: center; color: #999; margin-top: 20px; }
 
-function closeReceipt() { document.getElementById('receipt-overlay').classList.add('hidden'); }
-
-async function downloadReceipt(type) {
-    const area = document.getElementById('receipt-capture-area');
-    const canvas = await html2canvas(area);
-    if (type === 'image') {
-        const link = document.createElement('a');
-        link.download = 'GrowPay-Receipt.png';
-        link.href = canvas.toDataURL();
-        link.click();
-    } else {
-        const { jsPDF } = window.jspdf;
-        const pdf = new jsPDF();
-        pdf.addImage(canvas.toDataURL('image/png'), 'PNG', 10, 10, 180, 160);
-        pdf.save("GrowPay-Receipt.pdf");
-    }
-}
-
-// --- FIXED DEPOSIT LOGIC ---
-function processFixedDeposit() {
-    const amt = parseFloat(document.getElementById('fix-amount').value);
-    const select = document.getElementById('fix-tenor');
-    const days = parseInt(select.value);
-    const rate = parseInt(select.options[select.selectedIndex].dataset.rate);
-
-    if (amt > user.balance || amt < 500) return alert("Min Fix: ₦500");
-
-    user.balance -= amt;
-    const maturity = Date.now() + (days * 24 * 60 * 60 * 1000);
-    user.fixed.push({ amt, rate, days, start: Date.now(), maturity, id: Date.now() });
-    updateUI();
-}
-
-function renderFixed() {
-    const body = document.getElementById('fixed-list-body');
-    body.innerHTML = user.fixed.map((f, i) => {
-        const interest = (f.amt * (f.rate / 100));
-        const isMatured = Date.now() > f.maturity;
-        return `<tr>
-            <td>${fmt(f.amt)}</td>
-            <td>${fmt(interest)} (${f.rate}%)</td>
-            <td>${new Date(f.maturity).toLocaleDateString()}</td>
-            <td><button onclick="liquidate(${i})">${isMatured ? 'Claim' : 'Withdraw'}</button></td>
-        </tr>`;
-    }).join('');
-}
-
-function liquidate(index) {
-    const f = user.fixed[index];
-    const isMatured = Date.now() > f.maturity;
-    let interest = f.amt * (f.rate / 100);
-    
-    if (!isMatured) {
-        if (!confirm("Early withdrawal attracts 40% penalty on interest. Proceed?")) return;
-        interest = interest * 0.6;
-    }
-
-    user.balance += (f.amt + interest);
-    user.fixed.splice(index, 1);
-    user.history.unshift({ type: 'Credit', amt: f.amt + interest, date: new Date().toLocaleString(), ref: 'FIXED-REVERSE' });
-    updateUI();
-}
-
-// --- SHARES & HISTORY ---
-function buyShares() {
-    const qty = parseInt(document.getElementById('share-qty').value);
-    const cost = qty * 500;
-    if (cost > user.balance) return alert("Insufficient Funds");
-    
-    user.balance -= cost;
-    user.shares.push({ qty, value: cost, date: new Date().toLocaleDateString() });
-    updateUI();
-}
-
-function renderShares() {
-    document.getElementById('shares-list-body').innerHTML = user.shares.map(s => 
-        `<tr><td>${s.qty} Units</td><td>${fmt(s.value)}</td><td>In 1 Year</td></tr>`
-    ).join('');
-}
-
-function renderHistory() {
-    document.getElementById('history-list').innerHTML = user.history.map(h => 
-        `<div class="history-item" style="border-bottom:1px solid #eee; padding:10px;">
-            <strong>${h.type}: ${fmt(h.amt)}</strong> <br> <small>${h.date} | Ref: ${h.ref}</small>
-        </div>`
-    ).join('');
-}
-
-// Initialize
-if(user.name) {
-    document.getElementById('signup-form').classList.add('hidden');
-    document.getElementById('dashboard').classList.remove('hidden');
-    updateUI();
-}
+.receipt-actions { width: 90%; max-width: 350px; margin: 15px auto; display: flex; flex-direction: column; gap: 10px; }
+.img-btn { background: #555; }
+.pdf-btn { background: #007bff; }

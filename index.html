@@ -2,12 +2,11 @@
 <html lang="en">
 <head>
     <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
-    <title>GROWPAY - Digital Banking</title>
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>GROWPAY | Digital Finance</title>
     <link rel="stylesheet" href="style.css">
-    <!-- Icons and Fonts -->
     <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.0.0/css/all.min.css">
-    <!-- Libraries for PDF/Image Download -->
+    <!-- Libraries for Receipt Generation -->
     <script src="https://cdnjs.cloudflare.com/ajax/libs/html2canvas/1.4.1/html2canvas.min.js"></script>
     <script src="https://cdnjs.cloudflare.com/ajax/libs/jspdf/2.5.1/jspdf.umd.min.js"></script>
 </head>
@@ -16,12 +15,12 @@
         <!-- Auth Section -->
         <div id="auth-container">
             <div class="auth-card" id="login-form">
-                <h2>GROWPAY</h2>
-                <p>Welcome back, please login</p>
-                <input type="text" id="login-email" placeholder="Account Number">
+                <div class="logo-large">GROWPAY</div>
+                <h2>Welcome Back</h2>
+                <input type="text" id="login-id" placeholder="Account Number">
                 <input type="password" id="login-pass" placeholder="Password">
                 <button onclick="login()">Login</button>
-                <p class="toggle-auth">New user? <span onclick="showSignup()">Sign Up</span></p>
+                <p class="toggle-auth">New here? <span onclick="showSignup()">Create Account</span></p>
             </div>
 
             <div class="auth-card hidden" id="signup-form">
@@ -58,7 +57,7 @@
             <div class="quick-actions">
                 <button onclick="showSection('transfer-section')"><i class="fas fa-paper-plane"></i> Transfer</button>
                 <button onclick="showSection('history-section')"><i class="fas fa-history"></i> History</button>
-                <button onclick="showSection('fixed-section')"><i class="fas fa-lock"></i> Fix Funds</button>
+                <button onclick="showSection('fixed-section')"><i class="fas fa-lock"></i> Fixed</button>
                 <button onclick="showSection('shares-section')"><i class="fas fa-chart-line"></i> Shares</button>
             </div>
 
@@ -73,37 +72,66 @@
                 <button class="action-btn" onclick="processTransfer()">Send Money</button>
             </div>
 
-            <!-- History Section -->
-            <div id="history-section" class="app-section hidden">
-                <h3>Transaction History</h3>
-                <div id="history-list">
-                    <!-- History items injected here -->
-                </div>
-            </div>
-
             <!-- Fixed Deposit Section -->
             <div id="fixed-section" class="app-section hidden">
                 <h3>Fixed Deposit</h3>
-                <input type="number" id="fix-amount" placeholder="Amount to Fix">
-                <select id="fix-tenor">
-                    <option value="30">30 Days (10% Int)</option>
-                    <option value="90">90 Days (15% Int)</option>
-                    <option value="180">180 Days (25% Int)</option>
-                </select>
-                <button class="action-btn" onclick="processFixedDeposit()">Fix Now</button>
+                <div class="fix-input-group">
+                    <input type="number" id="fix-amount" placeholder="Amount to Fix">
+                    <select id="fix-tenor">
+                        <option value="30" data-rate="10">30 Days (10% Interest)</option>
+                        <option value="90" data-rate="15">90 Days (15% Interest)</option>
+                        <option value="180" data-rate="25">180 Days (25% Interest)</option>
+                    </select>
+                    <button class="action-btn" onclick="processFixedDeposit()">Fix Funds</button>
+                </div>
+
+                <h4>Active Deposits</h4>
+                <div class="table-container">
+                    <table id="fixed-table">
+                        <thead>
+                            <tr>
+                                <th>Amount</th>
+                                <th>Interest</th>
+                                <th>Maturity</th>
+                                <th>Action</th>
+                            </tr>
+                        </thead>
+                        <tbody id="fixed-list-body"></tbody>
+                    </table>
+                </div>
+                <p class="note">* Early liquidation attracts a 40% charge on accumulated interest.</p>
             </div>
 
             <!-- Shares Section -->
             <div id="shares-section" class="app-section hidden">
                 <h3>Investment Shares</h3>
-                <div class="share-info">
-                    <p>Price per Share: <strong>₦500.00</strong></p>
+                <div class="share-stats">
+                    <div class="stat"><span>Price:</span> <strong>₦500/unit</strong></div>
+                    <div class="stat"><span>Dividend:</span> <strong>12% Annually</strong></div>
                 </div>
-                <input type="number" id="share-qty" placeholder="Quantity">
-                <button class="action-btn" onclick="buyShares()">Buy Shares</button>
-                <div class="my-shares">
-                    <p>Shares Owned: <span id="owned-shares">0</span></p>
+                <input type="number" id="share-qty" placeholder="Units to Buy">
+                <button class="action-btn" onclick="buyShares()">Purchase Units</button>
+                
+                <h4>Your Portfolio</h4>
+                <div class="table-container">
+                    <table>
+                        <thead>
+                            <tr>
+                                <th>Units</th>
+                                <th>Value</th>
+                                <th>Next Dividend</th>
+                            </tr>
+                        </thead>
+                        <tbody id="shares-list-body"></tbody>
+                    </table>
                 </div>
+                <p class="note">All investments are regulated by SEC and CBN policies.</p>
+            </div>
+
+            <!-- History Section -->
+            <div id="history-section" class="app-section hidden">
+                <h3>Transaction History</h3>
+                <div id="history-list"></div>
             </div>
         </div>
 
@@ -121,7 +149,7 @@
         <!-- Receipt Overlay -->
         <div id="receipt-overlay" class="hidden">
             <div id="receipt-capture-area">
-                <div class="receipt-card" id="receipt-content">
+                <div class="receipt-card">
                     <div class="receipt-header">
                         <div class="logo-area"><span class="logo-icon">GP</span> GROWPAY</div>
                         <div class="receipt-title">Transaction Receipt</div>
@@ -143,7 +171,6 @@
             </div>
             <div class="receipt-actions">
                 <button class="download-btn img-btn" onclick="downloadReceipt('image')">Download Image</button>
-                <button class="download-btn pdf-btn" onclick="downloadReceipt('pdf')">Download PDF</button>
                 <button class="close-btn-receipt" onclick="closeReceipt()">Close</button>
             </div>
         </div>

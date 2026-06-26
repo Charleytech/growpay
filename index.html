@@ -3,182 +3,168 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>GROWPAY | Secure Banking</title>
-    <link rel="stylesheet" href="style.css">
-    <!-- Font Awesome for Icons -->
+    <title>GrowPay Pro | Digital Wallet</title>
+    <!-- Font Awesome for icons -->
     <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.0.0/css/all.min.css">
-    <!-- Google Fonts -->
-    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;600;700&display=swap" rel="stylesheet">
+    <link rel="stylesheet" href="style.css">
 </head>
 <body>
 
-    <div class="container">
-        <!-- Auth Section -->
-        <div class="auth-card" id="login-form">
-            <h2>GROWPAY WALLET</h2>
-            <input type="text" id="login-name" placeholder="Full Name">
-            <input type="password" id="login-pass" placeholder="Password">
-            <button onclick="signup()">Login</button>
-            <p class="toggle-auth">New user? <span onclick="document.getElementById('login-form').classList.add('hidden'); document.getElementById('signup-form').classList.remove('hidden')">Create Account</span></p>
+    <!-- --- AUTHENTICATION CONTAINER --- -->
+    <div id="auth-container">
+        <!-- Step 1: Generate Account -->
+        <div id="generate-step" class="auth-card">
+            <h1>GrowPay</h1>
+            <p>Enter phone number to generate account</p>
+            <input type="tel" id="phone-input" placeholder="08012345678">
+            <button onclick="generateAccount()">Generate Account</button>
+            <p>Already have an account? <a href="#" onclick="switchStep('generate-step', 'login-step')">Login</a></p>
         </div>
 
-        <div class="auth-card hidden" id="signup-form">
-            <h2>Create Account</h2>
-            <input type="text" id="reg-name" placeholder="Full Name">
-            <input type="text" id="reg-bvn" placeholder="NIN or BVN (11 digits)">
-            <input type="text" id="reg-address" placeholder="House Address">
-            <input type="password" id="reg-pass" placeholder="Create Password">
-            <button onclick="signup()">Register</button>
-            <p class="toggle-auth">Already have an account? <span onclick="location.reload()">Login</span></p>
+        <!-- Step 2: Display Generated Number -->
+        <div id="display-step" class="auth-card hidden">
+            <h1>Account Created!</h1>
+            <div class="acc-box">
+                <h2 id="generated-no">3090000000</h2>
+            </div>
+            <p>Copy this number to login</p>
+            <button onclick="switchStep('display-step', 'login-step')">Go to Login</button>
         </div>
 
-        <!-- Main Dashboard -->
-        <div id="dashboard" class="hidden">
-            <nav>
-                <div class="logo">GROWPAY</div>
-                <div class="user-info" id="user-display">User</div>
-                <button class="logout-btn" onclick="logout()">Logout</button>
-            </nav>
+        <!-- Step 3: Login -->
+        <div id="login-step" class="auth-card hidden">
+            <h1>Welcome Back</h1>
+            <input type="number" id="access-acc" placeholder="10-digit Account Number">
+            <button onclick="unlockWallet()">Unlock Wallet</button>
+            <p>New user? <a href="#" onclick="switchStep('login-step', 'generate-step')">Create Account</a></p>
+        </div>
+    </div>
 
-            <div class="balance-cards">
-                <div class="card main-bal">
-                    <p>Available Balance</p>
-                    <h3 id="avail-bal">₦0.00</h3>
-                    <button class="fund-btn" onclick="openAdminModal()">+ Fund Wallet</button>
-                </div>
-                <div class="card fixed-bal">
-                    <p>Fixed Savings <i class="fas fa-eye" id="toggle-eye" onclick="toggleFixedVisibility()"></i></p>
-                    <h3 id="fixed-bal-text">****</h3>
-                </div>
+    <!-- --- MAIN DASHBOARD --- -->
+    <div id="dashboard" class="hidden">
+        <!-- Navigation -->
+        <nav>
+            <div class="logo">GROWPAY</div>
+            <div class="user-meta">
+                Acc: <span id="user-acc-display">309...</span>
+            </div>
+            <button onclick="logout()" class="logout-btn"><i class="fas fa-power-off"></i></button>
+        </nav>
+
+        <!-- Balance Section -->
+        <div class="balance-container">
+            <div class="bal-card">
+                <p>Available Balance 
+                    <i id="eye-bal" class="fas fa-eye" onclick="toggleVisibility('bal')"></i>
+                </p>
+                <h2 id="avail-bal">₦0.00</h2>
+                <button class="admin-trigger" onclick="openModal('admin-modal')">Admin Funding</button>
             </div>
 
-            <div class="quick-actions">
-                <button onclick="showSection('transfer-section')"><i class="fas fa-paper-plane"></i> Transfer</button>
-                <button onclick="showSection('history-section')"><i class="fas fa-history"></i> History</button>
-                <button onclick="showSection('fixed-section')"><i class="fas fa-lock"></i> Fixed</button>
-                <button onclick="showSection('shares-section')"><i class="fas fa-chart-line"></i> Shares</button>
-            </div>
-
-            <!-- Transfer Section -->
-            <div id="transfer-section" class="app-section hidden">
-                <h3>Bank Transfer</h3>
-                <input type="text" id="trans-name" placeholder="Recipient Name">
-                <input type="text" id="trans-bank" placeholder="Select Bank">
-                <input type="number" id="trans-acc" placeholder="Account Number">
-                <input type="number" id="trans-amount" placeholder="Amount">
-                <input type="text" id="trans-remark" placeholder="Remark">
-                <button class="action-btn" onclick="processTransfer()">Send Money</button>
-            </div>
-
-            <!-- Fixed Deposit Section -->
-            <div id="fixed-section" class="app-section hidden">
-                <h3>Fixed Deposit</h3>
-                <div class="fix-input-group">
-                    <input type="number" id="fix-amount" placeholder="Amount to Fix">
-                    <select id="fix-tenor">
-                        <option value="30" data-rate="10">30 Days (10% Interest)</option>
-                        <option value="90" data-rate="15">90 Days (15% Interest)</option>
-                        <option value="180" data-rate="25">180 Days (25% Interest)</option>
-                    </select>
-                    <button class="action-btn" onclick="processFixedDeposit()">Fix Funds</button>
-                </div>
-
-                <h4>Active Deposits</h4>
-                <div class="table-container">
-                    <table id="fixed-table">
-                        <thead>
-                            <tr>
-                                <th>Amount</th>
-                                <th>Interest</th>
-                                <th>Maturity</th>
-                                <th>Action</th>
-                            </tr>
-                        </thead>
-                        <tbody id="fixed-list-body"></tbody>
-                    </table>
-                </div>
-                <p class="note">* Early liquidation attracts a 40% charge on accumulated interest.</p>
-            </div>
-
-            <!-- Shares Section -->
-            <div id="shares-section" class="app-section hidden">
-                <h3>Investment Shares</h3>
-                <div class="share-stats">
-                    <div class="stat"><span>Price:</span> <strong>₦500/unit</strong></div>
-                    <div class="stat"><span>Dividend:</span> <strong>12% Annually</strong></div>
-                </div>
-                <input type="number" id="share-qty" placeholder="Units to Buy">
-                <button class="action-btn" onclick="buyShares()">Purchase Units</button>
-                
-                <h4>Your Portfolio</h4>
-                <div class="table-container">
-                    <table>
-                        <thead>
-                            <tr>
-                                <th>Units</th>
-                                <th>Value</th>
-                                <th>Next Dividend</th>
-                            </tr>
-                        </thead>
-                        <tbody id="shares-list-body"></tbody>
-                    </table>
-                </div>
-                <p class="note">All investments are regulated by SEC and CBN policies.</p>
-            </div>
-
-            <!-- History Section -->
-            <div id="history-section" class="app-section hidden">
-                <h3>Transaction History</h3>
-                <div id="history-list"></div>
+            <div class="bal-card secondary">
+                <p>Fixed Deposit 
+                    <i id="eye-fix" class="fas fa-eye" onclick="toggleVisibility('fix')"></i>
+                </p>
+                <h2 id="fixed-bal-text">₦0.00</h2>
             </div>
         </div>
 
-        <!-- Admin Modal -->
-        <div id="admin-modal" class="modal hidden">
-            <div class="modal-content">
-                <h3>Admin Funding</h3>
-                <input type="password" id="admin-pin" placeholder="Admin PIN">
-                <input type="number" id="fund-amt" placeholder="Amount">
-                <button onclick="adminFund()">Approve</button>
-                <button class="close-btn" onclick="closeModal()">Cancel</button>
+        <!-- Quick Actions Menu -->
+        <div class="action-grid">
+            <button onclick="showSection('transfer-section')"><i class="fas fa-paper-plane"></i><br>Transfer</button>
+            <button onclick="showSection('fixed-section')"><i class="fas fa-vault"></i><br>Invest</button>
+            <button onclick="showSection('shares-section')"><i class="fas fa-chart-line"></i><br>Shares</button>
+            <button onclick="showSection('history-section')"><i class="fas fa-list-ul"></i><br>History</button>
+        </div>
+
+        <!-- Section: Transfer -->
+        <div id="transfer-section" class="app-section hidden">
+            <h3>Send Money</h3>
+            <input type="text" id="trans-name" placeholder="Recipient Full Name">
+            <input type="text" id="trans-bank" placeholder="Recipient Bank Name">
+            <input type="number" id="trans-acc" placeholder="Account Number">
+            <input type="number" id="trans-amount" placeholder="Amount (₦)">
+            <button class="main-btn" onclick="processTransfer()">Confirm Transfer</button>
+        </div>
+
+        <!-- Section: Fixed Deposit -->
+        <div id="fixed-section" class="app-section hidden">
+            <h3>Wealth Lock (8% Upfront Interest)</h3>
+            <div class="input-group">
+                <input type="number" id="fix-amount" placeholder="Amount to lock">
+                <select id="fix-duration">
+                    <option value="30">30 Days</option>
+                    <option value="90">90 Days</option>
+                    <option value="180">180 Days</option>
+                    <option value="365">1 Year</option>
+                </select>
+                <button class="main-btn" onclick="processFixedDeposit()">Create Fixed Deposit</button>
+            </div>
+
+            <h4>Active Investments</h4>
+            <div class="table-scroll">
+                <table>
+                    <thead>
+                        <tr>
+                            <th>Amount</th>
+                            <th>Interest</th>
+                            <th>Maturity</th>
+                            <th>Action</th>
+                        </tr>
+                    </thead>
+                    <tbody id="fixed-table-body">
+                        <!-- JS injected rows -->
+                    </tbody>
+                </table>
             </div>
         </div>
 
-        <!-- Receipt Overlay -->
-        <div id="receipt-overlay" class="hidden">
-            <div id="receipt-capture-area">
-                <div class="receipt-card">
-                    <div class="receipt-header">
-                        <div class="logo-area"><span class="logo-icon">GP</span> GROWPAY</div>
-                        <div class="receipt-title">Transaction Receipt</div>
-                    </div>
-                    <div class="receipt-amount">
-                        <h1 id="r-amount">₦0.00</h1>
-                        <div class="status-badge">Successful <i class="fas fa-check-circle"></i></div>
-                        <p id="r-date"></p>
-                    </div>
-                    <hr>
-                    <div class="receipt-details">
-                        <div class="row"><span class="label">Recipient</span><span class="val" id="r-recipient"></span></div>
-                        <div class="row"><span class="label">Sender</span><span class="val" id="r-sender"></span></div>
-                        <div class="row"><span class="label">Remark</span><span class="val" id="r-remark"></span></div>
-                        <div class="row"><span class="label">Transaction No.</span><span class="val" id="r-ref" style="font-size: 10px;"></span></div>
-                    </div>
-                    <p class="legal-text">Licensed by CBN and insured by NDIC.</p>
-                </div>
+        <!-- Section: Share Market -->
+        <div id="shares-section" class="app-section hidden">
+            <h3>Equity Market</h3>
+            <div id="market-display">
+                <!-- Market stats (Price, change, availability) injected here -->
             </div>
-            <div class="receipt-actions">
-                <button class="download-btn img-btn" onclick="downloadReceipt('image')">Download Image</button>
-                <button class="download-btn pdf-btn" onclick="downloadReceipt('pdf')">Download PDF</button>
-                <button class="close-btn-receipt" onclick="closeReceipt()">Close</button>
+            <div class="buy-box">
+                <input type="number" id="share-qty" placeholder="Units to buy">
+                <button class="main-btn" onclick="buyShares()">Buy Shares</button>
+            </div>
+        </div>
+
+        <!-- Section: History -->
+        <div id="history-section" class="app-section hidden">
+            <h3>Transaction History</h3>
+            <div id="history-list">
+                <!-- List items injected here -->
             </div>
         </div>
     </div>
 
-    <!-- Libraries -->
-    <script src="https://cdnjs.cloudflare.com/ajax/libs/html2canvas/1.4.1/html2canvas.min.js"></script>
-    <script src="https://cdnjs.cloudflare.com/ajax/libs/jspdf/2.5.1/jspdf.umd.min.js"></script>
-    <!-- Your Custom Script -->
+    <!-- --- MODALS --- -->
+
+    <!-- Admin Modal -->
+    <div id="admin-modal" class="modal hidden">
+        <div class="modal-content">
+            <h3>Authorized Funding</h3>
+            <input type="password" id="admin-pin" placeholder="4-Digit Admin PIN" maxlength="4">
+            <input type="number" id="fund-amt" placeholder="Credit Amount">
+            <div class="modal-btns">
+                <button onclick="adminFund()" class="confirm">Approve</button>
+                <button onclick="closeModal('admin-modal')" class="cancel">Cancel</button>
+            </div>
+        </div>
+    </div>
+
+    <!-- Receipt Modal (Opay Style) -->
+    <div id="receipt-modal" class="modal hidden">
+        <div class="modal-content receipt-box">
+            <div id="receipt-content">
+                <!-- Receipt generated by JS -->
+            </div>
+        </div>
+    </div>
+
+    <!-- JavaScript Reference -->
     <script src="script.js"></script>
 </body>
 </html>

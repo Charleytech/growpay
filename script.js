@@ -1,69 +1,67 @@
-// --- STATE MANAGEMENT ---
-let user = {
-    name: "",
-    accNo: "",
-    password: "",
-    balance: 0,
-    fixed: [], // {id, amount, interest, expiryDate, rawExpiry}
-    shares: [],
-    history: []
-};
+// --- CONFIGURATION & STATE ---
+let currentUser = JSON.parse(localStorage.getItem('growpay_user')) || null;
+const ADMIN_PIN = "1234"; // Admin PIN for funding
 
-// --- INITIALIZATION ---
-window.onload = () => {
-    const savedUser = localStorage.getItem('growpay_user');
-    const remembered = localStorage.getItem('growpay_remember');
-
-    if (remembered && savedUser) {
-        user = JSON.parse(savedUser);
-        goToDashboard();
+// Initialize App
+document.addEventListener('DOMContentLoaded', () => {
+    checkRememberMe();
+    if (currentUser) {
+        showDashboard();
     }
-};
+    // Background check for fixed deposit maturity every 5 seconds
+    setInterval(processMaturityLogic, 5000);
+});
 
 // --- AUTHENTICATION ---
 function signup() {
     const name = document.getElementById('reg-name').value;
+    const bvn = document.getElementById('reg-bvn').value;
+    const address = document.getElementById('reg-address').value;
     const pass = document.getElementById('reg-pass').value;
-    const isLogin = !document.getElementById('login-form').classList.contains('hidden');
 
-    if (isLogin) {
-        handleLogin();
+    if (pass.length !== 6 || isNaN(pass)) {
+        alert("Password must be exactly 6 numbers.");
+        return;
+    }
+    if (bvn.length !== 11) {
+        alert("BVN/NIN must be 11 digits.");
         return;
     }
 
-    // Validation
-    if (name.length < 3) return alert("Enter a valid name");
-    if (pass.length !== 6 || isNaN(pass)) return alert("Password must be exactly 6 numbers");
-
-    // Generate Account Number
-    const generatedAcc = Math.floor(1000000000 + Math.random() * 9000000000);
-
-    user = {
-        name: name,
-        accNo: generatedAcc,
-        password: pass,
+    const accNo = Math.floor(1000000000 + Math.random() * 9000000000);
+    
+    currentUser = {
+        name,
+        pass,
+        accNo,
         balance: 0,
-        fixed: [],
+        fixedBalance: 0,
+        fixedDeposits: [],
         shares: [],
         history: []
     };
 
-    alert(`Account Created! Your Account Number is: ${generatedAcc}`);
     saveAndRefresh();
-    goToDashboard();
+    showDashboard();
 }
 
-function handleLogin() {
+function login() {
     const name = document.getElementById('login-name').value;
     const pass = document.getElementById('login-pass').value;
-    const savedUser = JSON.parse(localStorage.getItem('growpay_user'));
+    const remember = true; // Set to true for demo, or link to a checkbox
 
-    if (savedUser && name === savedUser.name && pass === savedUser.password) {
-        user = savedUser;
-        localStorage.setItem('growpay_remember', 'true');
-        goToDashboard();
+    if (currentUser && currentUser.name === name && currentUser.pass === pass) {
+        if (remember) localStorage.setItem('growpay_remember', 'true');
+        showDashboard();
     } else {
         alert("Invalid Credentials");
+    }
+}
+
+function checkRememberMe() {
+    const isRemembered = localStorage.getItem('growpay_remember');
+    if (isRemembered === 'true' && currentUser) {
+        showDashboard();
     }
 }
 
@@ -72,11 +70,12 @@ function logout() {
     location.reload();
 }
 
-// --- NAVIGATION ---
-function goToDashboard() {
+// --- UI CONTROLS ---
+function showDashboard() {
     document.getElementById('login-form').classList.add('hidden');
     document.getElementById('signup-form').classList.add('hidden');
     document.getElementById('dashboard').classList.remove('hidden');
+    document.getElementById('user-display').innerText = `${currentUser.name} | Acct: ${currentUser.accNo}`;
     updateUI();
 }
 
@@ -85,208 +84,250 @@ function showSection(id) {
     document.getElementById(id).classList.remove('hidden');
 }
 
-// --- CORE UPDATES ---
 function updateUI() {
-    checkMaturity(); // Auto-check if fixed deposits are done
-
-    document.getElementById('avail-bal').innerText = `₦${user.balance.toLocaleString(undefined, {minimumFractionDigits: 2})}`;
-    document.getElementById('user-display').innerHTML = `${user.name} <br> <small style="color:var(--primary)">${user.accNo}</small>`;
+    document.getElementById('avail-bal').innerText = formatMoney(currentUser.balance);
+    const fixedText = document.getElementById('fixed-bal-text');
+    if (fixedText.innerText !== "****") {
+        fixedText.innerText = formatMoney(currentUser.fixedBalance);
+    }
     
     renderFixedTable();
     renderSharesTable();
     renderHistory();
-    localStorage.setItem('growpay_user', JSON.stringify(user));
+    localStorage.setItem('growpay_user', JSON.stringify(currentUser));
 }
 
-function saveAndRefresh() {
-    localStorage.setItem('growpay_user', JSON.stringify(user));
+function formatMoney(amt) {
+    return '₦' + parseFloat(amt).toLocaleString(undefined, {minimumFractionDigits: 2});
 }
 
-// --- FIXED DEPOSIT LOGIC (8% Interest) ---
+// --- CORE BANKING FEATURES ---
+
+// Admin Funding
+function openAdminModal() { document.getElementById('admin-modal').classList.remove('hidden'); }
+function closeModal() { document.getElementById('admin-modal').classList.add('hidden'); }
+
+function adminFund() {
+    const pin = document.getElementById('admin-pin').value;
+    const amt = parseFloat(document.getElementById('fund-amt').value);
+
+    if (pin === ADMIN_PIN && amt > 0) {
+        currentUser.balance += amt;
+        addHistory("Wallet Funding", amt, "Success");
+        saveAndRefresh();
+        closeModal();
+        alert("Wallet Funded Successfully!");
+    } else {
+        alert("Incorrect Admin PIN");
+    }
+}
+
+// Transfers
+function processTransfer() {
+    const amt = parseFloat(document.getElementById('trans-amount').value);
+    const name = document.getElementById('trans-name').value;
+    const remark = document.getElementById('trans-remark').value;
+
+    if (amt > currentUser.balance) return alert("Insufficient Balance");
+    if (amt <= 0) return alert("Enter valid amount");
+
+    currentUser.balance -= amt;
+    const ref = generateRef();
+    addHistory(`Transfer to ${name}`, -amt, "Success", ref);
+    
+    showReceipt(name, amt, remark, ref);
+    saveAndRefresh();
+}
+
+// Fixed Deposit Logic
 function processFixedDeposit() {
     const amt = parseFloat(document.getElementById('fix-amount').value);
     const tenorDays = parseInt(document.getElementById('fix-tenor').value);
+    
+    if (amt > currentUser.balance) return alert("Insufficient Balance");
+    
+    const interest = amt * 0.08; // 8% fixed interest
+    const maturityDate = new Date();
+    maturityDate.setSeconds(maturityDate.getSeconds() + (tenorDays)); // Using seconds for demo, change to setDate for days
 
-    if (isNaN(amt) || amt > user.balance || amt <= 0) return alert("Insufficient Balance");
-
-    user.balance -= amt;
-
-    const expiryDate = new Date();
-    expiryDate.setDate(expiryDate.getDate() + tenorDays);
-
-    const newFix = {
+    const deposit = {
         id: Date.now(),
         amount: amt,
-        interest: amt * 0.08, // Fixed at 8%
-        expiryDate: expiryDate.toLocaleDateString(),
-        rawExpiry: expiryDate.getTime()
+        interest: interest,
+        tenor: tenorDays,
+        startDate: new Date().toISOString(),
+        expiry: maturityDate.toISOString(),
+        status: 'Active'
     };
 
-    user.fixed.push(newFix);
-    user.history.unshift({ type: 'Fixed Deposit', amount: amt, date: new Date().toLocaleString() });
-    updateUI();
+    currentUser.balance -= amt;
+    currentUser.fixedBalance += amt;
+    currentUser.fixedDeposits.push(deposit);
+    saveAndRefresh();
 }
 
-function checkMaturity() {
-    const now = new Date().getTime();
-    let maturedCount = 0;
+function processMaturityLogic() {
+    if (!currentUser) return;
+    let changed = false;
+    const now = new Date();
 
-    user.fixed = user.fixed.filter(item => {
-        if (now >= item.rawExpiry) {
-            const totalReturn = item.amount + item.interest;
-            user.balance += totalReturn;
-            user.history.unshift({ type: 'Fixed Maturity', amount: totalReturn, date: new Date().toLocaleString() });
-            maturedCount++;
-            return false; // Remove from fixed list
+    currentUser.fixedDeposits.forEach((dep, index) => {
+        if (dep.status === 'Active' && now >= new Date(dep.expiry)) {
+            const totalReturn = dep.amount + dep.interest;
+            currentUser.balance += totalReturn;
+            currentUser.fixedBalance -= dep.amount;
+            dep.status = 'Completed';
+            addHistory("Fixed Deposit Maturity", totalReturn, "Success");
+            changed = true;
         }
-        return true;
     });
 
-    if (maturedCount > 0) alert(`${maturedCount} Fixed Deposit(s) matured and paid to balance!`);
+    if (changed) saveAndRefresh();
 }
 
-function liquidate(id) {
-    if (!confirm("Early liquidation attracts 40% penalty on interest. Proceed?")) return;
-    const idx = user.fixed.findIndex(f => f.id === id);
-    const item = user.fixed[idx];
+function liquidateEarly(id) {
+    const idx = currentUser.fixedDeposits.findIndex(d => d.id === id);
+    const dep = currentUser.fixedDeposits[idx];
     
-    // Penalty: 40% of the 8% interest is removed
-    const penalty = item.interest * 0.4;
-    const payout = item.amount + (item.interest - penalty);
-    
-    user.balance += payout;
-    user.fixed.splice(idx, 1);
-    updateUI();
+    if (confirm("Early liquidation attracts 40% penalty on interest. Continue?")) {
+        const penalty = dep.interest * 0.40;
+        const payout = dep.amount + (dep.interest - penalty);
+        
+        currentUser.balance += payout;
+        currentUser.fixedBalance -= dep.amount;
+        currentUser.fixedDeposits.splice(idx, 1);
+        addHistory("Early Liquidation", payout, "Success");
+        saveAndRefresh();
+    }
 }
 
-function topUpFixed(id) {
-    const extra = parseFloat(prompt("Enter amount to add to this fix:"));
-    if (isNaN(extra) || extra > user.balance || extra <= 0) return alert("Invalid amount");
-    
-    const item = user.fixed.find(f => f.id === id);
-    user.balance -= extra;
-    item.amount += extra;
-    item.interest = item.amount * 0.08; // Re-calculate 8%
-    updateUI();
+// Shares Logic
+function buyShares() {
+    const qty = parseInt(document.getElementById('share-qty').value);
+    const price = 500;
+    const total = qty * price;
+
+    if (total > currentUser.balance) return alert("Insufficient Balance");
+
+    const maturity = new Date();
+    maturity.setFullYear(maturity.getFullYear() + 1);
+
+    currentUser.shares.push({
+        units: qty,
+        value: total,
+        dividend: total * 0.12,
+        maturity: maturity.toLocaleDateString()
+    });
+
+    currentUser.balance -= total;
+    addHistory(`Bought ${qty} Shares`, -total, "Success");
+    saveAndRefresh();
 }
 
-// --- TRANSFER & RECEIPT ---
-function processTransfer() {
-    const amount = parseFloat(document.getElementById('trans-amount').value);
-    const recipient = document.getElementById('trans-name').value;
-    
-    if (isNaN(amount) || amount > user.balance || amount <= 0) return alert("Invalid Transaction");
-
-    user.balance -= amount;
-    
-    // Generate 24 random numbers
+// --- RECEIPT & UTILS ---
+function generateRef() {
     let ref = "";
-    for(let i=0; i<24; i++) ref += Math.floor(Math.random() * 10);
-
-    const tx = {
-        type: 'Transfer',
-        amount: amount,
-        recipient: recipient,
-        ref: ref,
-        date: new Date().toLocaleString(),
-        remark: document.getElementById('trans-remark').value || "Transfer"
-    };
-
-    user.history.unshift(tx);
-    showReceipt(tx);
-    updateUI();
+    for(let i=0; i<24; i++) ref += Math.floor(Math.random()*10);
+    return ref;
 }
 
-function showReceipt(tx) {
-    document.getElementById('r-amount').innerText = `₦${tx.amount.toLocaleString()}`;
-    document.getElementById('r-recipient').innerText = tx.recipient;
-    document.getElementById('r-sender').innerText = user.name;
-    document.getElementById('r-remark').innerText = tx.remark;
-    document.getElementById('r-ref').innerText = tx.ref;
-    document.getElementById('r-date').innerText = tx.date;
+function showReceipt(name, amt, remark, ref) {
+    document.getElementById('r-amount').innerText = formatMoney(amt);
+    document.getElementById('r-recipient').innerText = name;
+    document.getElementById('r-sender').innerText = currentUser.name;
+    document.getElementById('r-remark').innerText = remark || "None";
+    document.getElementById('r-ref').innerText = ref;
+    document.getElementById('r-date').innerText = new Date().toLocaleString();
     document.getElementById('receipt-overlay').classList.remove('hidden');
 }
 
 function closeReceipt() { document.getElementById('receipt-overlay').classList.add('hidden'); }
 
 async function downloadReceipt(type) {
-    const area = document.getElementById('receipt-capture-area');
-    const canvas = await html2canvas(area, { scale: 2 });
-    const imgData = canvas.toDataURL('image/png');
-
+    const element = document.getElementById('receipt-capture-area');
     if (type === 'image') {
+        const canvas = await html2canvas(element);
         const link = document.createElement('a');
-        link.download = `GrowPay-${Date.now()}.png`;
-        link.href = imgData;
+        link.download = `GrowPay-Receipt-${Date.now()}.png`;
+        link.href = canvas.toDataURL();
         link.click();
     } else {
         const { jsPDF } = window.jspdf;
-        const pdf = new jsPDF('p', 'mm', 'a4');
-        pdf.addImage(imgData, 'PNG', 10, 10, 100, 150);
-        pdf.save(`GrowPay-${Date.now()}.pdf`);
+        const canvas = await html2canvas(element);
+        const imgData = canvas.toDataURL('image/png');
+        const pdf = new jsPDF();
+        pdf.addImage(imgData, 'PNG', 10, 10, 180, 150);
+        pdf.save(`GrowPay-Receipt-${Date.now()}.pdf`);
     }
 }
 
-// --- SHARES & WALLET ---
-function buyShares() {
-    const qty = parseInt(document.getElementById('share-qty').value);
-    const cost = qty * 500;
-    if (isNaN(qty) || cost > user.balance) return alert("Check balance/input");
-    
-    user.balance -= cost;
-    user.shares.push({ units: qty, value: cost, date: "1 Year Maturity" });
-    updateUI();
+function toggleFixedVisibility() {
+    const el = document.getElementById('fixed-bal-text');
+    const eye = document.getElementById('toggle-eye');
+    if (el.innerText === "****") {
+        el.innerText = formatMoney(currentUser.fixedBalance);
+        eye.classList.replace('fa-eye', 'fa-eye-slash');
+    } else {
+        el.innerText = "****";
+        eye.classList.replace('fa-eye-slash', 'fa-eye');
+    }
 }
 
-function adminFund() {
-    const pin = document.getElementById('admin-pin').value;
-    const amt = parseFloat(document.getElementById('fund-amt').value);
-    if (pin === "0000" && !isNaN(amt)) {
-        user.balance += amt;
-        alert("Wallet Funded!");
-        closeModal();
-        updateUI();
-    } else alert("Invalid PIN");
-}
-
-// --- RENDER HELPERS ---
+// --- RENDERERS ---
 function renderFixedTable() {
     const body = document.getElementById('fixed-list-body');
-    body.innerHTML = user.fixed.map(f => `
+    body.innerHTML = currentUser.fixedDeposits.map(dep => `
         <tr>
-            <td>₦${f.amount.toLocaleString()}</td>
-            <td>₦${f.interest.toLocaleString()}</td>
-            <td>${f.expiryDate}</td>
+            <td>${formatMoney(dep.amount)}</td>
+            <td>8% (${formatMoney(dep.interest)})</td>
+            <td>${new Date(dep.expiry).toLocaleDateString()}</td>
             <td>
-                <button onclick="topUpFixed(${f.id})" style="padding:4px; margin-bottom:2px; background:orange; font-size:10px">Top-Up</button>
-                <button onclick="liquidate(${f.id})" style="padding:4px; background:red; font-size:10px">End</button>
+                ${dep.status === 'Active' ? 
+                `<button onclick="liquidateEarly(${dep.id})" style="background:red; color:white; border:none; padding:4px; font-size:10px;">End</button>` : 
+                'Completed'}
             </td>
         </tr>
     `).join('');
 }
 
 function renderSharesTable() {
-    document.getElementById('shares-list-body').innerHTML = user.shares.map(s => `
-        <tr><td>${s.units}</td><td>₦${s.value}</td><td>${s.date}</td></tr>
+    const body = document.getElementById('shares-list-body');
+    body.innerHTML = currentUser.shares.map(s => `
+        <tr>
+            <td>${s.units}</td>
+            <td>${formatMoney(s.value)}</td>
+            <td>${s.maturity} (Div: ${formatMoney(s.dividend)})</td>
+        </tr>
     `).join('');
 }
 
 function renderHistory() {
-    document.getElementById('history-list').innerHTML = user.history.map(h => `
-        <div style="border-bottom:1px solid #eee; padding:10px; display:flex; justify-content:space-between">
-            <div><b>${h.type}</b><br><small>${h.date}</small></div>
-            <div style="color:${h.type.includes('Transfer')?'red':'green'}">₦${h.amount.toLocaleString()}</div>
+    const list = document.getElementById('history-list');
+    list.innerHTML = currentUser.history.map(h => `
+        <div class="history-item" style="display:flex; justify-content:space-between; padding:10px; border-bottom:1px solid #eee;">
+            <div>
+                <small>${h.date}</small>
+                <p><strong>${h.type}</strong></p>
+            </div>
+            <div style="text-align:right">
+                <p style="color: ${h.amount < 0 ? 'red' : 'green'}">${formatMoney(h.amount)}</p>
+                <small>${h.status}</small>
+            </div>
         </div>
-    `).join('');
+    `).reverse().join('');
 }
 
-// UI Modals
-function openAdminModal() { document.getElementById('admin-modal').classList.remove('hidden'); }
-function closeModal() { document.getElementById('admin-modal').classList.add('hidden'); }
+function addHistory(type, amount, status, ref = "") {
+    currentUser.history.push({
+        date: new Date().toLocaleString(),
+        type,
+        amount,
+        status,
+        ref
+    });
+}
 
-let fixedVisible = false;
-function toggleFixedVisibility() {
-    fixedVisible = !fixedVisible;
-    const total = user.fixed.reduce((sum, f) => sum + f.amount, 0);
-    document.getElementById('fixed-bal-text').innerText = fixedVisible ? `₦${total.toLocaleString()}` : "****";
+function saveAndRefresh() {
+    localStorage.setItem('growpay_user', JSON.stringify(currentUser));
+    updateUI();
 }

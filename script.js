@@ -1,284 +1,184 @@
-let currentUser = null;
-let isFixedVisible = false;
-const ADMIN_PIN = "4455";
-const SHARE_PRICE = 500;
+// --- STATE MANAGEMENT ---
+let user = JSON.parse(localStorage.getItem('growpay_user')) || {
+    name: "", balance: 0, fixed: [], shares: [], history: [], isFixedVisible: false
+};
 
-// --- Authentication ---
+const save = () => localStorage.setItem('growpay_user', JSON.stringify(user));
+const fmt = (amt) => new Intl.NumberFormat('en-NG', { style: 'currency', currency: 'NGN' }).format(amt);
+
+// --- AUTH FUNCTIONS ---
 function signup() {
-    const name = document.getElementById('reg-name').value;
-    const bvn = document.getElementById('reg-bvn').value;
-    const address = document.getElementById('reg-address').value;
-    const pass = document.getElementById('reg-pass').value;
-
-    if (!name || bvn.length < 11 || !pass) return alert("Please fill all fields correctly.");
-
-    const accNo = "30" + Math.floor(100000000 + Math.random() * 900000000).toString().substring(0, 8);
-    const user = {
-        name, bvn, address, pass, accNo,
-        balance: 0,
-        fixedDeposits: [], // Array of objects
-        shares: 0,
-        transactions: []
-    };
-
-    localStorage.setItem(accNo, JSON.stringify(user));
-    alert(`Account Created! Account Number: ${accNo}`);
-    showLogin();
-}
-
-function login() {
-    const id = document.getElementById('login-id').value;
-    const pass = document.getElementById('login-pass').value;
-    const userData = localStorage.getItem(id);
-
-    if (userData) {
-        const user = JSON.parse(userData);
-        if (user.pass === pass) {
-            currentUser = user;
-            checkMaturities(); // Check for expired deposits on login
-            loadDashboard();
-        } else alert("Invalid Password");
-    } else alert("User not found");
-}
-
-// --- Dashboard Logic ---
-function loadDashboard() {
-    document.getElementById('auth-container').classList.add('hidden');
+    user.name = document.getElementById('reg-name').value;
+    if (!user.name || document.getElementById('reg-bvn').value.length < 11) return alert("Invalid Details");
+    document.getElementById('signup-form').classList.add('hidden');
     document.getElementById('dashboard').classList.remove('hidden');
-    document.getElementById('user-display').innerText = currentUser.name.split(' ')[0];
     updateUI();
 }
 
-function updateUI() {
-    // Calculate total fixed balance
-    const totalFixed = currentUser.fixedDeposits.reduce((sum, d) => sum + d.amount, 0);
-    
-    document.getElementById('avail-bal').innerText = `₦${currentUser.balance.toLocaleString()}`;
-    document.getElementById('fixed-bal-text').innerText = isFixedVisible ? `₦${totalFixed.toLocaleString()}` : "****";
-    
-    renderFixedTable();
-    renderSharesTable();
-    renderHistory();
-    saveData();
+function logout() {
+    localStorage.removeItem('growpay_user');
+    location.reload();
 }
 
-function checkMaturities() {
-    const now = new Date().getTime();
-    let updated = false;
-
-    currentUser.fixedDeposits = currentUser.fixedDeposits.filter(deposit => {
-        if (now >= deposit.expiry) {
-            currentUser.balance += deposit.amount;
-            currentUser.transactions.push({
-                type: "Maturity Inflow",
-                amount: deposit.amount,
-                date: new Date().toLocaleString(),
-                ref: "MAT-" + Date.now()
-            });
-            updated = true;
-            return false; // Remove from fixed
-        }
-        return true;
-    });
-
-    if (updated) saveData();
-}
-
-// --- Fixed Deposit Feature ---
-function processFixedDeposit() {
-    const amt = parseFloat(document.getElementById('fix-amount').value);
-    const tenorSelect = document.getElementById('fix-tenor');
-    const days = parseInt(tenorSelect.value);
-    const rate = parseInt(tenorSelect.options[tenorSelect.selectedIndex].dataset.rate);
-
-    if (isNaN(amt) || amt < 500) return alert("Minimum fix amount is ₦500");
-    if (amt > currentUser.balance) return alert("Insufficient Balance");
-
-    const interest = amt * (rate / 100);
-    const now = new Date();
-    const expiry = new Date();
-    expiry.setDate(now.getDate() + days);
-
-    const newDeposit = {
-        id: Date.now(),
-        amount: amt,
-        interest: interest,
-        rate: rate,
-        startDate: now.toLocaleDateString(),
-        expiry: expiry.getTime(),
-        expiryDate: expiry.toLocaleDateString()
-    };
-
-    // Logic: Deduct principal, add interest to available immediately
-    currentUser.balance -= amt;
-    currentUser.balance += interest;
-    currentUser.fixedDeposits.push(newDeposit);
-
-    currentUser.transactions.push({
-        type: "Fixed Deposit",
-        amount: amt,
-        date: new Date().toLocaleString(),
-        ref: "FIX-" + Date.now()
-    });
-
-    alert(`Success! ₦${interest} interest added to your wallet. Principal locked until ${newDeposit.expiryDate}`);
-    updateUI();
-}
-
-function renderFixedTable() {
-    const tbody = document.getElementById('fixed-list-body');
-    tbody.innerHTML = "";
-
-    currentUser.fixedDeposits.forEach(d => {
-        const row = `<tr>
-            <td>₦${d.amount}</td>
-            <td>₦${d.interest} (${d.rate}%)</td>
-            <td>${d.expiryDate}</td>
-            <td><button class="fund-btn" style="background:#ff5252" onclick="liquidate(${d.id})">End</button></td>
-        </tr>`;
-        tbody.innerHTML += row;
-    });
-}
-
-function liquidate(id) {
-    if (!confirm("Liquidation attracts 40% interest penalty. Continue?")) return;
-
-    const idx = currentUser.fixedDeposits.findIndex(d => d.id === id);
-    const deposit = currentUser.fixedDeposits[idx];
-    
-    const penalty = deposit.interest * 0.4;
-    const refund = deposit.amount - penalty;
-
-    currentUser.balance += refund;
-    currentUser.fixedDeposits.splice(idx, 1);
-    
-    alert(`Liquidation successful. ₦${penalty} was charged. ₦${refund} returned to wallet.`);
-    updateUI();
-}
-
-// --- Shares Feature ---
-function buyShares() {
-    const qty = parseInt(document.getElementById('share-qty').value);
-    if (isNaN(qty) || qty <= 0) return alert("Enter valid quantity");
-    
-    const totalCost = qty * SHARE_PRICE;
-    if (totalCost > currentUser.balance) return alert("Insufficient Balance");
-
-    currentUser.balance -= totalCost;
-    currentUser.shares += qty;
-
-    currentUser.transactions.push({
-        type: "Shares Purchase",
-        amount: totalCost,
-        date: new Date().toLocaleString(),
-        ref: "SHR-" + Date.now()
-    });
-
-    updateUI();
-}
-
-function renderSharesTable() {
-    const tbody = document.getElementById('shares-list-body');
-    const value = currentUser.shares * SHARE_PRICE;
-    const dividend = value * 0.12; // 12% yearly
-
-    tbody.innerHTML = `<tr>
-        <td>${currentUser.shares} Units</td>
-        <td>₦${value.toLocaleString()}</td>
-        <td>₦${(dividend/12).toFixed(2)} (Monthly)</td>
-    </tr>`;
-}
-
-// --- Admin & Utils ---
-function adminFund() {
-    const pin = document.getElementById('admin-pin').value;
-    const amt = parseFloat(document.getElementById('fund-amt').value);
-    
-    if (pin === ADMIN_PIN && amt > 0) {
-        currentUser.balance += amt;
-        currentUser.transactions.push({
-            type: "Wallet Funding",
-            amount: amt,
-            recipient: "Wallet",
-            sender: "Admin",
-            remark: "Funding",
-            date: new Date().toLocaleString(),
-            ref: "ADM-" + Math.random().toString(36).substr(2, 9).toUpperCase()
-        });
-        updateUI();
-        closeModal();
-    } else alert("Invalid PIN");
-}
-
-function processTransfer() {
-    const name = document.getElementById('trans-name').value;
-    const amt = parseFloat(document.getElementById('trans-amount').value);
-    
-    if (amt > currentUser.balance) return alert("Insufficient Funds");
-    if (!name || amt <= 0) return alert("Invalid inputs");
-
-    currentUser.balance -= amt;
-    const tx = {
-        type: "Transfer",
-        amount: amt,
-        recipient: name,
-        sender: currentUser.name,
-        remark: document.getElementById('trans-remark').value || "None",
-        date: new Date().toLocaleString(),
-        ref: "TX-" + Math.random().toString(36).substr(2, 12).toUpperCase()
-    };
-    
-    currentUser.transactions.push(tx);
-    showReceipt(tx);
-    updateUI();
-}
-
-function showReceipt(tx) {
-    document.getElementById('r-amount').innerText = `₦${tx.amount.toLocaleString()}`;
-    document.getElementById('r-recipient').innerText = tx.recipient;
-    document.getElementById('r-sender').innerText = tx.sender;
-    document.getElementById('r-remark').innerText = tx.remark;
-    document.getElementById('r-date').innerText = tx.date;
-    document.getElementById('r-ref').innerText = tx.ref;
-    document.getElementById('receipt-overlay').classList.remove('hidden');
-}
-
-function renderHistory() {
-    const container = document.getElementById('history-list');
-    container.innerHTML = "";
-    [...currentUser.transactions].reverse().forEach(tx => {
-        container.innerHTML += `<div class="history-item">
-            <div>
-                <h4>${tx.type}</h4>
-                <p>${tx.date}</p>
-            </div>
-            <div style="text-align:right">
-                <p><strong>₦${tx.amount.toLocaleString()}</strong></p>
-                <p style="color:var(--accent)">Success</p>
-            </div>
-        </div>`;
-    });
-}
-
-// Helpers
-function saveData() { localStorage.setItem(currentUser.accNo, JSON.stringify(currentUser)); }
-function showSignup() { document.getElementById('login-form').classList.add('hidden'); document.getElementById('signup-form').classList.remove('hidden'); }
-function showLogin() { document.getElementById('signup-form').classList.add('hidden'); document.getElementById('login-form').classList.remove('hidden'); }
-function logout() { location.reload(); }
-function openAdminModal() { document.getElementById('admin-modal').classList.remove('hidden'); }
-function closeModal() { document.getElementById('admin-modal').classList.add('hidden'); }
-function toggleFixedVisibility() { isFixedVisible = !isFixedVisible; updateUI(); }
-function closeReceipt() { document.getElementById('receipt-overlay').classList.add('hidden'); }
 function showSection(id) {
     document.querySelectorAll('.app-section').forEach(s => s.classList.add('hidden'));
     document.getElementById(id).classList.remove('hidden');
 }
 
+// --- CORE LOUNGE ---
+function updateUI() {
+    document.getElementById('user-display').innerText = user.name || "User";
+    document.getElementById('avail-bal').innerText = fmt(user.balance);
+    
+    // Fixed Balance Eye Toggle
+    const totalFixed = user.fixed.reduce((a, b) => a + b.amount, 0);
+    document.getElementById('fixed-bal-text').innerText = user.isFixedVisible ? fmt(totalFixed) : "****";
+    
+    renderFixed();
+    renderShares();
+    renderHistory();
+    save();
+}
+
+function toggleFixedVisibility() {
+    user.isFixedVisible = !user.isFixedVisible;
+    updateUI();
+}
+
+// --- ADMIN FUNDING ---
+function openAdminModal() { document.getElementById('admin-modal').classList.remove('hidden'); }
+function closeModal() { document.getElementById('admin-modal').classList.add('hidden'); }
+
+function adminFund() {
+    const pin = document.getElementById('admin-pin').value;
+    const amt = parseFloat(document.getElementById('fund-amt').value);
+    if (pin === "1234" && amt > 0) {
+        user.balance += amt;
+        user.history.unshift({ type: 'Credit', amt, date: new Date().toLocaleString(), ref: 'ADMIN-FUND' });
+        closeModal();
+        updateUI();
+    } else { alert("Wrong PIN or Amount"); }
+}
+
+// --- TRANSFER & RECEIPT ---
+function processTransfer() {
+    const amt = parseFloat(document.getElementById('trans-amount').value);
+    const name = document.getElementById('trans-name').value;
+    const bank = document.getElementById('trans-bank').value;
+    const acc = document.getElementById('trans-acc').value;
+
+    if (amt > user.balance || amt <= 0) return alert("Insufficient Funds");
+
+    user.balance -= amt;
+    const ref = Array.from({length: 24}, () => Math.floor(Math.random() * 10)).join('');
+    const trans = { type: 'Debit', amt, name, bank, acc, ref, date: new Date().toLocaleString(), remark: document.getElementById('trans-remark').value || "None" };
+    
+    user.history.unshift(trans);
+    showReceipt(trans);
+    updateUI();
+}
+
+function showReceipt(t) {
+    document.getElementById('r-amount').innerText = fmt(t.amt);
+    document.getElementById('r-recipient').innerText = `${t.name} | ${t.bank} | ${t.acc}`;
+    document.getElementById('r-sender').innerText = user.name;
+    document.getElementById('r-ref').innerText = t.ref;
+    document.getElementById('r-date').innerText = t.date;
+    document.getElementById('r-remark').innerText = t.remark;
+    document.getElementById('receipt-overlay').classList.remove('hidden');
+}
+
+function closeReceipt() { document.getElementById('receipt-overlay').classList.add('hidden'); }
+
 async function downloadReceipt(type) {
-    const element = document.getElementById('receipt-capture-area');
-    const canvas = await html2canvas(element);
-    const link = document.createElement('a');
-    link.download = `GrowPay-Receipt-${Date.now()}.png`;
-    link.href = canvas.toDataURL();
-    link.click();
+    const area = document.getElementById('receipt-capture-area');
+    const canvas = await html2canvas(area);
+    if (type === 'image') {
+        const link = document.createElement('a');
+        link.download = 'GrowPay-Receipt.png';
+        link.href = canvas.toDataURL();
+        link.click();
+    } else {
+        const { jsPDF } = window.jspdf;
+        const pdf = new jsPDF();
+        pdf.addImage(canvas.toDataURL('image/png'), 'PNG', 10, 10, 180, 160);
+        pdf.save("GrowPay-Receipt.pdf");
+    }
+}
+
+// --- FIXED DEPOSIT LOGIC ---
+function processFixedDeposit() {
+    const amt = parseFloat(document.getElementById('fix-amount').value);
+    const select = document.getElementById('fix-tenor');
+    const days = parseInt(select.value);
+    const rate = parseInt(select.options[select.selectedIndex].dataset.rate);
+
+    if (amt > user.balance || amt < 500) return alert("Min Fix: ₦500");
+
+    user.balance -= amt;
+    const maturity = Date.now() + (days * 24 * 60 * 60 * 1000);
+    user.fixed.push({ amt, rate, days, start: Date.now(), maturity, id: Date.now() });
+    updateUI();
+}
+
+function renderFixed() {
+    const body = document.getElementById('fixed-list-body');
+    body.innerHTML = user.fixed.map((f, i) => {
+        const interest = (f.amt * (f.rate / 100));
+        const isMatured = Date.now() > f.maturity;
+        return `<tr>
+            <td>${fmt(f.amt)}</td>
+            <td>${fmt(interest)} (${f.rate}%)</td>
+            <td>${new Date(f.maturity).toLocaleDateString()}</td>
+            <td><button onclick="liquidate(${i})">${isMatured ? 'Claim' : 'Withdraw'}</button></td>
+        </tr>`;
+    }).join('');
+}
+
+function liquidate(index) {
+    const f = user.fixed[index];
+    const isMatured = Date.now() > f.maturity;
+    let interest = f.amt * (f.rate / 100);
+    
+    if (!isMatured) {
+        if (!confirm("Early withdrawal attracts 40% penalty on interest. Proceed?")) return;
+        interest = interest * 0.6;
+    }
+
+    user.balance += (f.amt + interest);
+    user.fixed.splice(index, 1);
+    user.history.unshift({ type: 'Credit', amt: f.amt + interest, date: new Date().toLocaleString(), ref: 'FIXED-REVERSE' });
+    updateUI();
+}
+
+// --- SHARES & HISTORY ---
+function buyShares() {
+    const qty = parseInt(document.getElementById('share-qty').value);
+    const cost = qty * 500;
+    if (cost > user.balance) return alert("Insufficient Funds");
+    
+    user.balance -= cost;
+    user.shares.push({ qty, value: cost, date: new Date().toLocaleDateString() });
+    updateUI();
+}
+
+function renderShares() {
+    document.getElementById('shares-list-body').innerHTML = user.shares.map(s => 
+        `<tr><td>${s.qty} Units</td><td>${fmt(s.value)}</td><td>In 1 Year</td></tr>`
+    ).join('');
+}
+
+function renderHistory() {
+    document.getElementById('history-list').innerHTML = user.history.map(h => 
+        `<div class="history-item" style="border-bottom:1px solid #eee; padding:10px;">
+            <strong>${h.type}: ${fmt(h.amt)}</strong> <br> <small>${h.date} | Ref: ${h.ref}</small>
+        </div>`
+    ).join('');
+}
+
+// Initialize
+if(user.name) {
+    document.getElementById('signup-form').classList.add('hidden');
+    document.getElementById('dashboard').classList.remove('hidden');
+    updateUI();
 }

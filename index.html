@@ -12,14 +12,13 @@
     <script src="https://cdnjs.cloudflare.com/ajax/libs/jspdf/2.5.1/jspdf.umd.min.js"></script>
 </head>
 <body>
-
     <div class="app-container">
         <!-- Auth Section -->
         <div id="auth-container">
             <div class="auth-card" id="login-form">
                 <h2>GROWPAY</h2>
                 <p>Welcome back, please login</p>
-                <input type="text" id="login-email" placeholder="Email or Account Number">
+                <input type="text" id="login-email" placeholder="Account Number">
                 <input type="password" id="login-pass" placeholder="Password">
                 <button onclick="login()">Login</button>
                 <p class="toggle-auth">New user? <span onclick="showSignup()">Sign Up</span></p>
@@ -58,24 +57,33 @@
 
             <div class="quick-actions">
                 <button onclick="showSection('transfer-section')"><i class="fas fa-paper-plane"></i> Transfer</button>
-                <button onclick="showSection('shares-section')"><i class="fas fa-chart-line"></i> Shares</button>
+                <button onclick="showSection('history-section')"><i class="fas fa-history"></i> History</button>
                 <button onclick="showSection('fixed-section')"><i class="fas fa-lock"></i> Fix Funds</button>
-                <button onclick="showSection('airtime-section')"><i class="fas fa-mobile-alt"></i> Airtime</button>
+                <button onclick="showSection('shares-section')"><i class="fas fa-chart-line"></i> Shares</button>
             </div>
 
-            <!-- Sections -->
+            <!-- Transfer Section -->
             <div id="transfer-section" class="app-section hidden">
                 <h3>Bank Transfer</h3>
                 <input type="text" id="trans-name" placeholder="Recipient Name">
                 <input type="text" id="trans-bank" placeholder="Select Bank">
                 <input type="number" id="trans-acc" placeholder="Account Number">
                 <input type="number" id="trans-amount" placeholder="Amount">
-                <input type="text" id="trans-remark" placeholder="Remark (e.g. T-shirt)">
+                <input type="text" id="trans-remark" placeholder="Remark">
                 <button class="action-btn" onclick="processTransfer()">Send Money</button>
             </div>
 
+            <!-- History Section -->
+            <div id="history-section" class="app-section hidden">
+                <h3>Transaction History</h3>
+                <div id="history-list">
+                    <!-- History items injected here -->
+                </div>
+            </div>
+
+            <!-- Fixed Deposit Section -->
             <div id="fixed-section" class="app-section hidden">
-                <h3>Fixed Deposit (Min 10% Interest)</h3>
+                <h3>Fixed Deposit</h3>
                 <input type="number" id="fix-amount" placeholder="Amount to Fix">
                 <select id="fix-tenor">
                     <option value="30">30 Days (10% Int)</option>
@@ -83,86 +91,63 @@
                     <option value="180">180 Days (25% Int)</option>
                 </select>
                 <button class="action-btn" onclick="processFixedDeposit()">Fix Now</button>
-                
-                <div class="table-container">
-                    <h4>Fixed Deposit Analysis</h4>
-                    <table id="fixed-table">
-                        <thead>
-                            <tr>
-                                <th>Amount</th>
-                                <th>Tenor</th>
-                                <th>Interest</th>
-                                <th>Status</th>
-                            </tr>
-                        </thead>
-                        <tbody id="fixed-table-body"></tbody>
-                    </table>
-                </div>
             </div>
 
+            <!-- Shares Section -->
             <div id="shares-section" class="app-section hidden">
                 <h3>Investment Shares</h3>
                 <div class="share-info">
-                    <p>Price per Share: <strong id="share-price">₦500.00</strong></p>
-                    <p>Growth: <strong>+2.5% Daily</strong></p>
+                    <p>Price per Share: <strong>₦500.00</strong></p>
                 </div>
-                <input type="number" id="share-qty" placeholder="How many shares?">
+                <input type="number" id="share-qty" placeholder="Quantity">
                 <button class="action-btn" onclick="buyShares()">Buy Shares</button>
                 <div class="my-shares">
                     <p>Shares Owned: <span id="owned-shares">0</span></p>
-                    <p>Valuation: <span id="share-value">₦0.00</span></p>
                 </div>
-            </div>
-            
-            <div id="airtime-section" class="app-section hidden">
-                <h3>Buy Airtime</h3>
-                <input type="number" placeholder="Phone Number">
-                <input type="number" placeholder="Amount">
-                <button class="action-btn" onclick="alert('Feature coming soon')">Buy Airtime</button>
             </div>
         </div>
 
         <!-- Admin Modal -->
         <div id="admin-modal" class="modal hidden">
             <div class="modal-content">
-                <h3>Admin Authorization</h3>
-                <input type="password" id="admin-pin" placeholder="Enter 4-Digit Admin PIN">
-                <input type="number" id="fund-amt" placeholder="Amount to Add">
-                <button onclick="adminFund()">Approve Funding</button>
+                <h3>Admin Funding</h3>
+                <input type="password" id="admin-pin" placeholder="Admin PIN">
+                <input type="number" id="fund-amt" placeholder="Amount">
+                <button onclick="adminFund()">Approve</button>
                 <button class="close-btn" onclick="closeModal()">Cancel</button>
             </div>
         </div>
 
         <!-- Receipt Overlay -->
         <div id="receipt-overlay" class="hidden">
-            <div class="receipt-card" id="receipt-content">
-                <div class="receipt-header">
-                    <div class="logo-area"><span class="logo-icon">GP</span> GROWPAY</div>
-                    <div class="receipt-title">Transaction Receipt</div>
+            <div id="receipt-capture-area">
+                <div class="receipt-card" id="receipt-content">
+                    <div class="receipt-header">
+                        <div class="logo-area"><span class="logo-icon">GP</span> GROWPAY</div>
+                        <div class="receipt-title">Transaction Receipt</div>
+                    </div>
+                    <div class="receipt-amount">
+                        <h1 id="r-amount">₦0.00</h1>
+                        <div class="status-badge">Successful <i class="fas fa-check-circle"></i></div>
+                        <p id="r-date"></p>
+                    </div>
+                    <hr>
+                    <div class="receipt-details">
+                        <div class="row"><span class="label">Recipient</span><span class="val" id="r-recipient"></span></div>
+                        <div class="row"><span class="label">Sender</span><span class="val" id="r-sender"></span></div>
+                        <div class="row"><span class="label">Remark</span><span class="val" id="r-remark"></span></div>
+                        <div class="row"><span class="label">Transaction No.</span><span class="val" id="r-ref"></span></div>
+                    </div>
+                    <p class="legal-text">Licensed by CBN and insured by NDIC.</p>
                 </div>
-                <div class="receipt-amount">
-                    <h1 id="r-amount">₦0.00</h1>
-                    <div class="status-badge">Successful <i class="fas fa-check-circle"></i></div>
-                    <p id="r-date"></p>
-                </div>
-                <hr>
-                <div class="receipt-details">
-                    <div class="row"><span class="label">Recipient</span><span class="val" id="r-recipient"></span></div>
-                    <div class="row"><span class="label">Sender</span><span class="val" id="r-sender"></span></div>
-                    <div class="row"><span class="label">Remark</span><span class="val" id="r-remark"></span></div>
-                    <div class="row"><span class="label">Transaction No.</span><span class="val" id="r-ref" style="word-break: break-all; font-size: 0.7rem;"></span></div>
-                </div>
-                <p class="legal-text">Licensed by CBN and insured by NDIC.</p>
-                
-                <div class="receipt-actions">
-                    <button class="download-btn img-btn" onclick="downloadReceipt('image')">Download Image</button>
-                    <button class="download-btn pdf-btn" onclick="downloadReceipt('pdf')">Download PDF</button>
-                    <button class="close-btn-receipt" onclick="closeReceipt()">Close</button>
-                </div>
+            </div>
+            <div class="receipt-actions">
+                <button class="download-btn img-btn" onclick="downloadReceipt('image')">Download Image</button>
+                <button class="download-btn pdf-btn" onclick="downloadReceipt('pdf')">Download PDF</button>
+                <button class="close-btn-receipt" onclick="closeReceipt()">Close</button>
             </div>
         </div>
     </div>
-
     <script src="script.js"></script>
 </body>
 </html>

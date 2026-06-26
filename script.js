@@ -1,9 +1,9 @@
-// --- Configuration & State Management ---
+// --- App State Management ---
 let users = JSON.parse(localStorage.getItem('growpay_users')) || [];
 let currentUser = JSON.parse(sessionStorage.getItem('growpay_session')) || null;
-const ADMIN_PIN = "1234"; // Admin funding PIN
+const ADMIN_PIN = "1234"; 
 
-// Initialize App
+// Initialize App on Load
 document.addEventListener('DOMContentLoaded', () => {
     if (currentUser) {
         showDashboard();
@@ -13,37 +13,41 @@ document.addEventListener('DOMContentLoaded', () => {
 // --- Helper Functions ---
 const saveUsers = () => localStorage.setItem('growpay_users', JSON.stringify(users));
 const updateSession = () => sessionStorage.setItem('growpay_session', JSON.stringify(currentUser));
-
 const formatCurrency = (num) => "₦" + parseFloat(num).toLocaleString(undefined, { minimumFractionDigits: 2 });
-
-const generateAccountNumber = () => Math.floor(Math.random() * 9000000000) + 1000000000;
-
-const generateTransID = () => {
+const generateAccountNumber = () => Math.floor(1000000000 + Math.random() * 9000000000); // 10 Digits
+const generateTransID = () => { // 24 Digits
     let res = "";
     for (let i = 0; i < 24; i++) res += Math.floor(Math.random() * 10);
     return res;
 };
 
-// --- Auth Functions ---
-function signup() {
-    const name = document.getElementById('reg-name').value;
-    const bvn = document.getElementById('reg-bvn').value;
-    const addr = document.getElementById('reg-address').value;
-    const pass = document.getElementById('reg-pass').value;
+// --- Authentication Logic ---
 
-    if (!name || bvn.length !== 11 || !pass) {
-        alert("Please fill all fields correctly. BVN/NIN must be 11 digits.");
+function signup() {
+    const name = document.getElementById('reg-name').value.trim();
+    const bvn = document.getElementById('reg-bvn').value.trim();
+    const addr = document.getElementById('reg-address').value.trim();
+    const pass = document.getElementById('reg-pass').value.trim();
+
+    if (!name || bvn.length !== 11 || !pass || !addr) {
+        alert("Please fill all fields. BVN/NIN must be 11 digits.");
+        return;
+    }
+
+    // Check if User already exists (Unique Name or BVN/NIN)
+    const existingUser = users.find(u => u.name.toLowerCase() === name.toLowerCase() || u.bvn === bvn);
+    if (existingUser) {
+        alert("An account with this Name or BVN/NIN already exists on this device.");
         return;
     }
 
     const newUser = {
         name,
-        pass,
         bvn,
         address: addr,
+        pass,
         accountNo: generateAccountNumber(),
         balance: 0,
-        fixedBalance: 0,
         fixedDeposits: [],
         shares: [],
         history: []
@@ -51,22 +55,22 @@ function signup() {
 
     users.push(newUser);
     saveUsers();
-    currentUser = newUser;
-    updateSession();
-    showDashboard();
+    alert("Account created successfully! Please login.");
+    location.reload(); // Refresh to login page
 }
 
 function login() {
-    const name = document.getElementById('login-name').value;
-    const pass = document.getElementById('login-pass').value;
+    const nameInput = document.getElementById('login-name').value.trim();
+    const passInput = document.getElementById('login-pass').value.trim();
 
-    const user = users.find(u => u.name === name && u.pass === pass);
+    const user = users.find(u => u.name.toLowerCase() === nameInput.toLowerCase() && u.pass === passInput);
+
     if (user) {
         currentUser = user;
         updateSession();
         showDashboard();
     } else {
-        alert("Invalid credentials");
+        alert("Invalid Full Name or Password.");
     }
 }
 
@@ -75,7 +79,8 @@ function logout() {
     location.reload();
 }
 
-// --- Navigation & UI ---
+// --- Navigation & UI Updates ---
+
 function showDashboard() {
     document.getElementById('login-form').classList.add('hidden');
     document.getElementById('signup-form').classList.add('hidden');
@@ -89,20 +94,19 @@ function showSection(sectionId) {
 }
 
 function updateUI() {
-    document.getElementById('user-display').innerText = `${currentUser.name} (${currentUser.accountNo})`;
+    document.getElementById('user-display').innerText = `${currentUser.name} | Acc: ${currentUser.accountNo}`;
     document.getElementById('avail-bal').innerText = formatCurrency(currentUser.balance);
     
     // Update Fixed Table
     const tbody = document.getElementById('fixed-list-body');
     tbody.innerHTML = '';
     currentUser.fixedDeposits.forEach((fd, index) => {
-        const row = `<tr>
+        tbody.innerHTML += `<tr>
             <td>${formatCurrency(fd.amount)}</td>
             <td>${fd.rate}%</td>
             <td>${fd.expiry}</td>
-            <td><button onclick="liquidateFixed(${index})" class="close-btn" style="padding:2px 5px; font-size:10px">End</button></td>
+            <td><button onclick="liquidateFixed(${index})" style="background:red; color:white; border:none; padding:4px; cursor:pointer">End</button></td>
         </tr>`;
-        tbody.innerHTML += row;
     });
 
     // Update Shares Table
@@ -119,14 +123,20 @@ function updateUI() {
     // Update History
     const historyList = document.getElementById('history-list');
     historyList.innerHTML = currentUser.history.slice().reverse().map(h => `
-        <div class="card" style="margin-bottom:10px; border-left: 4px solid ${h.type === 'Credit' ? '#2ecc71' : '#e74c3c'}">
-            <p><strong>${h.type}: ${formatCurrency(h.amount)}</strong></p>
-            <p style="font-size:12px">${h.remark} | ${h.date}</p>
+        <div style="padding:10px; border-bottom:1px solid #eee; display:flex; justify-content:space-between">
+            <div>
+                <strong style="color:${h.type === 'Credit' ? 'green' : 'red'}">${h.type}</strong><br>
+                <small>${h.remark}</small><br>
+                <small style="color:gray; font-size:10px">${h.date}</small>
+            </div>
+            <div><strong>${formatCurrency(h.amount)}</strong></div>
         </div>
     `).join('');
 }
 
-// --- Admin Funding ---
+// --- Features Logic ---
+
+// 1. Admin Funding
 function openAdminModal() { document.getElementById('admin-modal').classList.remove('hidden'); }
 function closeModal() { document.getElementById('admin-modal').classList.add('hidden'); }
 
@@ -139,22 +149,22 @@ function adminFund() {
         currentUser.history.push({
             type: 'Credit',
             amount: amt,
-            remark: 'Admin Funding',
+            remark: 'Admin Wallet Funding',
             date: new Date().toLocaleString()
         });
         saveAndUpdate();
         closeModal();
-        alert("Wallet Funded Successfully");
+        alert("Success! Wallet Funded.");
     } else {
         alert("Invalid PIN or Amount");
     }
 }
 
-// --- Transfers ---
+// 2. Bank Transfer & Receipt
 function processTransfer() {
     const amt = parseFloat(document.getElementById('trans-amount').value);
     const recipient = document.getElementById('trans-name').value;
-    const remark = document.getElementById('trans-remark').value;
+    const remark = document.getElementById('trans-remark').value || "Transfer";
 
     if (amt > 0 && currentUser.balance >= amt) {
         currentUser.balance -= amt;
@@ -171,11 +181,11 @@ function processTransfer() {
         saveAndUpdate();
         showReceipt(amt, recipient, remark, ref, date);
     } else {
-        alert("Insufficient funds or invalid amount");
+        alert("Insufficient balance.");
     }
 }
 
-// --- Fixed Deposit ---
+// 3. Fixed Deposit (Instant Interest Logic)
 function processFixedDeposit() {
     const amt = parseFloat(document.getElementById('fix-amount').value);
     const tenorSelect = document.getElementById('fix-tenor');
@@ -185,7 +195,7 @@ function processFixedDeposit() {
     if (amt > 0 && currentUser.balance >= amt) {
         const interest = (amt * (rate / 100));
         
-        // Deduction and immediate interest drop
+        // Deduction of principal + Immediate drop of interest
         currentUser.balance -= amt; 
         currentUser.balance += interest;
 
@@ -197,52 +207,51 @@ function processFixedDeposit() {
             interestEarned: interest,
             rate: rate,
             expiry: expiryDate.toLocaleDateString(),
-            expiryRaw: expiryDate.getTime(),
-            status: 'Active'
+            expiryRaw: expiryDate.getTime()
         });
 
         currentUser.history.push({
             type: 'Fixed Deposit',
             amount: amt,
-            remark: `Fixed for ${days} days (+${formatCurrency(interest)} interest added)`,
+            remark: `Fixed ${amt} for ${days} days. Interest of ${interest} added to balance.`,
             date: new Date().toLocaleString()
         });
 
         saveAndUpdate();
-        alert(`Fixed successfully! ${formatCurrency(interest)} interest has been added to your balance.`);
+        alert(`Fixed successful! Interest of ${formatCurrency(interest)} added to your balance.`);
     } else {
-        alert("Insufficient balance");
+        alert("Insufficient balance.");
     }
 }
 
 function liquidateFixed(index) {
     const fd = currentUser.fixedDeposits[index];
     const now = new Date().getTime();
-    let refundAmount = fd.amount;
-
+    
+    // Penalty logic: If before expiry, charge 40% of the interest already dropped
     if (now < fd.expiryRaw) {
         const penalty = fd.interestEarned * 0.40;
-        alert(`Early liquidation! A 40% penalty (${formatCurrency(penalty)}) will be deducted from your balance.`);
+        alert(`Note: Early liquidation before expiry date. A penalty of 40% of earned interest (${formatCurrency(penalty)}) has been deducted.`);
         currentUser.balance -= penalty;
     }
 
-    currentUser.balance += fd.amount;
+    currentUser.balance += fd.amount; // Refund principal
     currentUser.fixedDeposits.splice(index, 1);
     
     currentUser.history.push({
         type: 'Credit',
         amount: fd.amount,
-        remark: 'Fixed Deposit Liquidated',
+        remark: 'Fixed Principal Returned',
         date: new Date().toLocaleString()
     });
 
     saveAndUpdate();
 }
 
-// --- Shares ---
+// 4. Shares Investment
 function buyShares() {
     const qty = parseInt(document.getElementById('share-qty').value);
-    const pricePerUnit = 500;
+    const pricePerUnit = 500; // Fixed price for logic
     const total = qty * pricePerUnit;
 
     if (qty > 0 && currentUser.balance >= total) {
@@ -256,23 +265,24 @@ function buyShares() {
         currentUser.history.push({
             type: 'Debit',
             amount: total,
-            remark: `Bought ${qty} share units`,
+            remark: `Purchased ${qty} shares units`,
             date: new Date().toLocaleString()
         });
 
         saveAndUpdate();
         alert("Shares purchased successfully!");
     } else {
-        alert("Insufficient funds or invalid quantity");
+        alert("Insufficient balance or invalid quantity.");
     }
 }
 
-// --- Receipt Management ---
+// --- UI Receipt and Saving Logic ---
+
 function showReceipt(amt, recipient, remark, ref, date) {
     document.getElementById('r-amount').innerText = formatCurrency(amt);
     document.getElementById('r-recipient').innerText = recipient;
     document.getElementById('r-sender').innerText = currentUser.name;
-    document.getElementById('r-remark').innerText = remark || "None";
+    document.getElementById('r-remark').innerText = remark;
     document.getElementById('r-ref').innerText = ref;
     document.getElementById('r-date').innerText = date;
     document.getElementById('receipt-overlay').classList.remove('hidden');
@@ -280,45 +290,22 @@ function showReceipt(amt, recipient, remark, ref, date) {
 
 function closeReceipt() { document.getElementById('receipt-overlay').classList.add('hidden'); }
 
-async function downloadReceipt(type) {
-    const element = document.getElementById('receipt-capture-area');
-    const canvas = await html2canvas(element);
-    
-    if (type === 'image') {
-        const link = document.createElement('a');
-        link.download = 'GrowPay-Receipt.png';
-        link.href = canvas.toDataURL();
-        link.click();
-    } else {
-        const { jsPDF } = window.jspdf;
-        const pdf = new jsPDF();
-        pdf.addImage(canvas.toDataURL('image/png'), 'PNG', 15, 15, 180, 160);
-        pdf.save("GrowPay-Receipt.pdf");
-    }
-}
-
-// --- Utility: Save and Refresh ---
 function saveAndUpdate() {
-    const userIdx = users.findIndex(u => u.accountNo === currentUser.accountNo);
-    users[userIdx] = currentUser;
+    const idx = users.findIndex(u => u.accountNo === currentUser.accountNo);
+    users[idx] = currentUser;
     saveUsers();
     updateSession();
     updateUI();
 }
 
-// --- Toggle Eye ---
 let fixedVisible = false;
 function toggleFixedVisibility() {
     fixedVisible = !fixedVisible;
-    const eye = document.getElementById('toggle-eye');
     const text = document.getElementById('fixed-bal-text');
-    
     if (fixedVisible) {
-        const totalFixed = currentUser.fixedDeposits.reduce((sum, fd) => sum + fd.amount, 0);
-        text.innerText = formatCurrency(totalFixed);
-        eye.classList.replace('fa-eye', 'fa-eye-slash');
+        const total = currentUser.fixedDeposits.reduce((s, f) => s + f.amount, 0);
+        text.innerText = formatCurrency(total);
     } else {
         text.innerText = "****";
-        eye.classList.replace('fa-eye-slash', 'fa-eye');
     }
 }

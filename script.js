@@ -1,345 +1,335 @@
-// --- INITIALIZATION & DATA HANDLING ---
-let users = JSON.parse(localStorage.getItem('growpay_users')) || [];
-let currentUser = JSON.parse(localStorage.getItem('growpay_current_user')) || null;
+// --- CONFIGURATION & STATE ---
+const ADMIN_PIN = "1234"; 
+let currentUser = null;
+let users = JSON.parse(localStorage.getItem('growpay_pro_users')) || [];
 
-const ADMIN_PIN = "1234"; // Default Admin PIN for funding
+// Share Market Variables
+let marketPrice = 240.50;
+let marketChange = 1.2;
 
-// Run on page load
-window.onload = () => {
-    if (currentUser) {
-        showDashboard();
-    }
-};
+// --- 1. AUTHENTICATION LOGIC ---
 
-// --- AUTHENTICATION ---
+// Step: Generate Account from Phone Number
+function generateAccount() {
+    const phone = document.getElementById('phone-input').value;
+    if (phone.length < 10) return alert("Please enter a valid phone number");
 
-function signup() {
-    const name = document.getElementById('reg-name').value.trim();
-    const bvn = document.getElementById('reg-bvn').value.trim();
-    const address = document.getElementById('reg-address').value.trim();
-    const pass = document.getElementById('reg-pass').value.trim();
-
-    if (!name || !bvn || !address || !pass) return alert("Please fill all fields");
-    if (bvn.length !== 11) return alert("BVN/NIN must be 11 digits");
-
-    // Check for existing user
-    const existingUser = users.find(u => u.name === name || u.bvn === bvn);
-    if (existingUser) return alert("User with this Name or BVN already exists!");
-
+    // Generate 10-digit account starting with 309
+    const accNo = "309" + Math.floor(1000000 + Math.random() * 9000000);
+    
     const newUser = {
-        name: name,
-        bvn: bvn,
-        address: address,
-        password: pass,
-        accountNumber: Math.floor(1000000000 + Math.random() * 9000000000).toString(),
+        phone: phone,
+        accountNumber: accNo,
         balance: 0,
         fixedBalance: 0,
-        history: [],
-        fixedDeposits: [],
-        shares: []
+        investments: [],
+        sharesHistory: [],
+        history: [] // This will store every transaction
     };
 
     users.push(newUser);
     saveData();
-    alert("Account Created Successfully! Please login.");
-    location.reload();
+
+    document.getElementById('generated-no').innerText = accNo;
+    switchStep('generate-step', 'display-step');
 }
 
-function login() {
-    const name = document.getElementById('login-name').value.trim();
-    const pass = document.getElementById('login-pass').value.trim();
-
-    const user = users.find(u => u.name === name && u.password === pass);
+// Step: Login with Account Number
+function unlockWallet() {
+    const accInput = document.getElementById('access-acc').value;
+    const user = users.find(u => u.accountNumber === accInput);
 
     if (user) {
         currentUser = user;
-        localStorage.setItem('growpay_current_user', JSON.stringify(currentUser));
-        showDashboard();
+        initializeApp();
+        switchStep('auth-container', 'dashboard');
     } else {
-        alert("Invalid Name or Password");
+        alert("Account number not found!");
     }
 }
 
-// Override the inline onclick for login button in HTML if needed
-document.querySelector('#login-form button').onclick = login;
-
 function logout() {
-    localStorage.removeItem('growpay_current_user');
+    currentUser = null;
     location.reload();
 }
 
-// --- UI NAVIGATION ---
+// --- 2. CORE APP INITIALIZATION ---
 
-function showDashboard() {
-    document.getElementById('login-form').classList.add('hidden');
-    document.getElementById('signup-form').classList.add('hidden');
-    document.getElementById('dashboard').classList.remove('hidden');
+function initializeApp() {
+    document.getElementById('user-acc-display').innerText = currentUser.accountNumber;
     updateUI();
-}
-
-function showSection(sectionId) {
-    document.querySelectorAll('.app-section').forEach(s => s.classList.add('hidden'));
-    document.getElementById(sectionId).classList.remove('hidden');
+    startMarket();
 }
 
 function updateUI() {
-    if (!currentUser) return;
-
-    document.getElementById('user-display').innerText = `${currentUser.name} | Acct: ${currentUser.accountNumber}`;
-    document.getElementById('avail-bal').innerText = `₦${currentUser.balance.toLocaleString(undefined, {minimumFractionDigits: 2})}`;
+    // Balances
+    const balElement = document.getElementById('avail-bal');
+    const fixElement = document.getElementById('fixed-bal-text');
     
-    const fixedText = document.getElementById('fixed-bal-text');
-    if (fixedText.innerText !== "****") {
-        fixedText.innerText = `₦${currentUser.fixedBalance.toLocaleString()}`;
-    }
+    // Check eye visibility (using a simple data attribute on the element)
+    balElement.innerText = balElement.dataset.visible === "false" ? "****" : `₦${currentUser.balance.toLocaleString()}`;
+    fixElement.innerText = fixElement.dataset.visible === "false" ? "****" : `₦${currentUser.fixedBalance.toLocaleString()}`;
 
-    renderHistory();
     renderFixedTable();
-    renderShares();
+    renderHistory(); // ACTIVATE HISTORY ON EVERY UI UPDATE
 }
 
-function saveData() {
-    localStorage.setItem('growpay_users', JSON.stringify(users));
-    if (currentUser) {
-        // Update current user in the main users array
-        const index = users.findIndex(u => u.accountNumber === currentUser.accountNumber);
-        if (index !== -1) users[index] = currentUser;
-        localStorage.setItem('growpay_users', JSON.stringify(users));
-        localStorage.setItem('growpay_current_user', JSON.stringify(currentUser));
+// Toggle Balances
+function toggleVisibility(type) {
+    const el = type === 'bal' ? document.getElementById('avail-bal') : document.getElementById('fixed-bal-text');
+    const icon = document.getElementById(`eye-${type}`);
+    
+    const isVisible = el.dataset.visible !== "false";
+    el.dataset.visible = !isVisible;
+    icon.className = !isVisible ? "fas fa-eye" : "fas fa-eye-slash";
+    updateUI();
+}
+
+// --- 3. TRANSACTION HISTORY SYSTEM (The Activated Feature) ---
+
+function addTransaction(type, amount, status, details) {
+    const tx = {
+        txId: generateLongId(), // 24 digit ID
+        date: new Date().toLocaleString(),
+        type: type,
+        amount: amount,
+        status: status,
+        details: details // Object containing bank, recipient, etc.
+    };
+    currentUser.history.unshift(tx); // Add to start of array
+    saveData();
+    renderHistory();
+}
+
+function generateLongId() {
+    let id = "";
+    for(let i=0; i<24; i++) id += Math.floor(Math.random()*10);
+    return id;
+}
+
+function renderHistory() {
+    const historyList = document.getElementById('history-list');
+    if (!historyList) return;
+
+    if (currentUser.history.length === 0) {
+        historyList.innerHTML = "<p style='text-align:center; color:gray;'>No transactions yet.</p>";
+        return;
     }
+
+    historyList.innerHTML = currentUser.history.map((tx, index) => `
+        <div class="history-card" onclick="rePrintReceipt(${index})">
+            <div class="history-info">
+                <i class="fas ${tx.amount > 0 && tx.type.includes('Credit') ? 'fa-arrow-down' : 'fa-arrow-up'}"></i>
+                <div>
+                    <span class="tx-type">${tx.type}</span><br>
+                    <small>${tx.date}</small>
+                </div>
+            </div>
+            <div class="history-amt ${tx.amount > 0 && tx.type.includes('Credit') ? 'positive' : 'negative'}">
+                ${tx.amount > 0 && tx.type.includes('Credit') ? '+' : '-'}₦${Math.abs(tx.amount).toLocaleString()}
+            </div>
+        </div>
+    `).join('');
 }
 
-// --- CORE FEATURES ---
+// --- 4. FINANCIAL FUNCTIONS ---
 
 // Admin Funding
-function openAdminModal() { document.getElementById('admin-modal').classList.remove('hidden'); }
-function closeModal() { document.getElementById('admin-modal').classList.add('hidden'); }
-
 function adminFund() {
     const pin = document.getElementById('admin-pin').value;
     const amount = parseFloat(document.getElementById('fund-amt').value);
 
-    if (pin !== ADMIN_PIN) return alert("Incorrect Admin PIN");
-    if (isNaN(amount) || amount <= 0) return alert("Enter valid amount");
+    if (pin !== ADMIN_PIN) return alert("Unauthorized PIN");
+    if (isNaN(amount) || amount <= 0) return alert("Invalid amount");
 
     currentUser.balance += amount;
-    addHistory("Credit", `Admin Funding`, amount);
     
-    saveData();
+    addTransaction("Admin Credit", amount, "Success", {
+        remark: "Wallet Funded by Admin",
+        bank: "GrowPay Internal"
+    });
+
+    closeModal('admin-modal');
     updateUI();
-    closeModal();
-    alert("Wallet Funded Successfully!");
+    alert("Funding Successful");
 }
 
-// Transfer logic
+// Transfers
 function processTransfer() {
-    const recipient = document.getElementById('trans-name').value;
-    const amount = parseFloat(document.getElementById('trans-amount').value);
-    const remark = document.getElementById('trans-remark').value || "Transfer";
+    const name = document.getElementById('trans-name').value;
+    const bank = document.getElementById('trans-bank').value;
+    const acc = document.getElementById('trans-acc').value;
+    const amt = parseFloat(document.getElementById('trans-amount').value);
 
-    if (!recipient || isNaN(amount) || amount <= 0) return alert("Fill all details correctly");
-    if (amount > currentUser.balance) return alert("Insufficient Balance");
+    if (amt > currentUser.balance) return alert("Insufficient Balance");
+    if (!name || !bank || !acc || amt <= 0) return alert("Fill all fields correctly");
 
-    currentUser.balance -= amount;
-    const ref = generateRef();
-    addHistory("Debit", `To: ${recipient}`, amount, ref);
-    
-    saveData();
+    currentUser.balance -= amt;
+
+    const details = {
+        recipient: name,
+        bank: bank,
+        accNo: acc,
+        remark: "Transfer to " + name
+    };
+
+    addTransaction("Transfer", amt, "Success", details);
     updateUI();
-    showReceipt(recipient, amount, remark, ref);
+    showReceipt(currentUser.history[0]); // Show latest receipt
 }
 
 // Fixed Deposit
 function processFixedDeposit() {
     const amt = parseFloat(document.getElementById('fix-amount').value);
-    const tenor = parseInt(document.getElementById('fix-tenor').value);
-    const rate = parseInt(document.getElementById('fix-tenor').selectedOptions[0].getAttribute('data-rate'));
+    const days = parseInt(document.getElementById('fix-duration').value);
 
-    if (isNaN(amt) || amt < 1000) return alert("Minimum fixed amount is ₦1,000");
     if (amt > currentUser.balance) return alert("Insufficient Balance");
+    if (amt < 1000) return alert("Minimum lock is ₦1,000");
 
-    const interest = (amt * rate) / 100;
-    const maturityDate = new Date();
-    maturityDate.setDate(maturityDate.getDate() + tenor);
+    const interest = amt * 0.08;
+    const maturity = new Date();
+    maturity.setDate(maturity.getDate() + days);
 
-    const deposit = {
+    const investment = {
         id: Date.now(),
         amount: amt,
         interest: interest,
-        tenor: tenor,
-        maturity: maturityDate.toISOString(),
-        status: "Active"
+        expiryDate: maturity.toLocaleDateString(),
+        rawExpiry: maturity.getTime(),
+        duration: days,
+        percentage: "8%"
     };
 
     currentUser.balance -= amt;
+    currentUser.balance += interest; // Upfront interest
     currentUser.fixedBalance += amt;
-    // Instruction: drop interest into available balance immediately
-    currentUser.balance += interest; 
+    currentUser.investments.push(investment);
 
-    currentUser.fixedDeposits.push(deposit);
-    addHistory("Fixed Deposit", `Fixed ₦${amt} for ${tenor} days`, amt);
+    addTransaction("Fixed Deposit", amt, "Locked", { remark: `Locked for ${days} days. Interest of ₦${interest} paid upfront.` });
     
-    saveData();
     updateUI();
-    alert(`Success! Interest of ₦${interest} added to your balance.`);
+    alert(`Success! ₦${interest} interest added to your wallet.`);
 }
 
 function renderFixedTable() {
-    const body = document.getElementById('fixed-list-body');
-    body.innerHTML = "";
-    currentUser.fixedDeposits.forEach(d => {
-        const isMatured = new Date() > new Date(d.maturity);
-        body.innerHTML += `
-            <tr>
-                <td>₦${d.amount}</td>
-                <td>₦${d.interest}</td>
-                <td>${new Date(d.maturity).toLocaleDateString()}</td>
-                <td>
-                    <button onclick="liquidate(${d.id})" class="${isMatured ? 'matured-btn' : 'early-btn'}">
-                        ${isMatured ? 'Withdraw' : 'End Early'}
-                    </button>
-                </td>
-            </tr>
-        `;
-    });
+    const tableBody = document.getElementById('fixed-table-body');
+    tableBody.innerHTML = currentUser.investments.map(inv => `
+        <tr>
+            <td>₦${inv.amount.toLocaleString()}</td>
+            <td>8% (₦${inv.interest})</td>
+            <td>${inv.expiryDate}</td>
+            <td><button onclick="liquidateFixed(${inv.id})" class="liquid-btn">End</button></td>
+        </tr>
+    `).join('');
 }
 
-function liquidate(id) {
-    const index = currentUser.fixedDeposits.findIndex(d => d.id === id);
-    const dep = currentUser.fixedDeposits[index];
-    const isMatured = new Date() > new Date(dep.maturity);
+function liquidateFixed(id) {
+    const index = currentUser.investments.findIndex(i => i.id === id);
+    const inv = currentUser.investments[index];
+    const now = new Date().getTime();
 
-    if (!isMatured) {
-        const penalty = dep.interest * 0.40;
-        if (!confirm(`Early liquidation attracts 40% penalty on interest (₦${penalty}). Proceed?`)) return;
-        currentUser.balance -= penalty; // Deduct penalty because interest was already paid
+    if (now < inv.rawExpiry) {
+        if (confirm("Penalty: Breaking before maturity will deduct the interest already paid from your capital. Proceed?")) {
+            currentUser.balance += (inv.amount - inv.interest);
+            currentUser.fixedBalance -= inv.amount;
+            addTransaction("Early Withdrawal", inv.amount, "Penalty Applied", { remark: "Fixed deposit broken prematurely" });
+            currentUser.investments.splice(index, 1);
+        }
+    } else {
+        currentUser.balance += inv.amount;
+        currentUser.fixedBalance -= inv.amount;
+        addTransaction("Fixed Maturity", inv.amount, "Success", { remark: "Maturity reached" });
+        currentUser.investments.splice(index, 1);
     }
-
-    currentUser.balance += dep.amount;
-    currentUser.fixedBalance -= dep.amount;
-    currentUser.fixedDeposits.splice(index, 1);
-    
-    addHistory("Liquidation", `Closed Fix: ₦${dep.amount}`, dep.amount);
-    saveData();
     updateUI();
 }
 
-// Shares
+// --- 5. SHARE MARKET ---
+
+function startMarket() {
+    setInterval(() => {
+        const flux = (Math.random() * 4 - 2); // -2 to +2
+        marketPrice = Math.max(10, marketPrice + flux);
+        marketChange = flux.toFixed(2);
+        
+        const marketDiv = document.getElementById('market-display');
+        if (marketDiv) {
+            marketDiv.innerHTML = `
+                <div class="market-stat">
+                    <span>Price: <strong>₦${marketPrice.toFixed(2)}</strong></span>
+                    <span style="color:${marketChange >= 0 ? '#00ff88' : '#ff4444'}">
+                        ${marketChange >= 0 ? '▲' : '▼'} ${marketChange}%
+                    </span>
+                    <br><small>Shares Available: ${Math.floor(Math.random()*50000)} units</small>
+                </div>
+            `;
+        }
+    }, 3000);
+}
+
 function buyShares() {
     const qty = parseInt(document.getElementById('share-qty').value);
-    const pricePerUnit = 500; 
-    const total = qty * pricePerUnit;
+    const cost = qty * marketPrice;
 
-    if (isNaN(qty) || qty <= 0) return alert("Enter valid units");
-    if (total > currentUser.balance) return alert("Insufficient Balance");
+    if (cost > currentUser.balance) return alert("Insufficient Balance");
 
-    currentUser.balance -= total;
-    currentUser.shares.push({
-        units: qty,
-        price: pricePerUnit,
-        total: total,
-        date: new Date().toISOString(),
-        dividend: "12% Annually"
-    });
+    currentUser.balance -= cost;
+    const shareEntry = { date: new Date().toLocaleString(), qty, price: marketPrice.toFixed(2), total: cost };
+    currentUser.sharesHistory.push(shareEntry);
 
-    addHistory("Investment", `Bought ${qty} share units`, total);
-    saveData();
+    addTransaction("Equity Purchase", cost, "Success", { remark: `Bought ${qty} GrowPay Shares` });
     updateUI();
-    alert("Shares purchased successfully!");
+    alert("Shares Purchased!");
 }
 
-function renderShares() {
-    const body = document.getElementById('shares-list-body');
-    body.innerHTML = "";
-    currentUser.shares.forEach(s => {
-        body.innerHTML += `
-            <tr>
-                <td>${s.units}</td>
-                <td>₦${s.total}</td>
-                <td>${new Date().toLocaleDateString()}</td>
-            </tr>
-        `;
-    });
-}
+// --- 6. RECEIPTS & MODALS ---
 
-// --- HELPERS ---
-
-function generateRef() {
-    // Generate 24 digit OPay style transaction number
-    return Math.random().toString().slice(2, 14) + Math.random().toString().slice(2, 14);
-}
-
-function addHistory(type, desc, amt, ref = null) {
-    currentUser.history.unshift({
-        type, 
-        desc, 
-        amt, 
-        ref: ref || generateRef().slice(0,10),
-        date: new Date().toLocaleString()
-    });
-}
-
-function renderHistory() {
-    const container = document.getElementById('history-list');
-    container.innerHTML = currentUser.history.length === 0 ? "<p>No transactions yet</p>" : "";
-    currentUser.history.forEach(h => {
-        container.innerHTML += `
-            <div class="history-item">
-                <div class="h-info">
-                    <strong>${h.type}: ${h.desc}</strong>
-                    <small>${h.date}</small>
-                </div>
-                <div class="h-amt ${h.type === 'Credit' || h.type === 'Liquidation' ? 'txt-green' : 'txt-red'}">
-                    ${h.type === 'Credit' || h.type === 'Liquidation' ? '+' : '-'}₦${h.amt.toLocaleString()}
-                </div>
+function showReceipt(tx) {
+    const modal = document.getElementById('receipt-modal');
+    const content = document.getElementById('receipt-content');
+    
+    content.innerHTML = `
+        <div class="opay-receipt-design">
+            <div class="receipt-header">
+                <div class="success-icon"><i class="fas fa-check-circle"></i></div>
+                <h2>Transaction Successful</h2>
+                <h1>₦${tx.amount.toLocaleString()}</h1>
             </div>
-        `;
-    });
+            <hr>
+            <div class="receipt-row"><span>Recipient</span> <span>${tx.details.recipient || 'GrowPay User'}</span></div>
+            <div class="receipt-row"><span>Bank</span> <span>${tx.details.bank || 'GrowPay'}</span></div>
+            <div class="receipt-row"><span>Account No.</span> <span>${tx.details.accNo || '***'}</span></div>
+            <div class="receipt-row"><span>Transaction No.</span> <span class="long-id">${tx.txId}</span></div>
+            <div class="receipt-row"><span>Date</span> <span>${tx.date}</span></div>
+            <div class="receipt-row"><span>Status</span> <span class="status-pill">COMPLETED</span></div>
+            <div class="receipt-footer-btns">
+                <button onclick="window.print()" class="print-btn">Download Receipt</button>
+                <button onclick="closeModal('receipt-modal')" class="close-btn">Close</button>
+            </div>
+        </div>
+    `;
+    modal.classList.remove('hidden');
 }
 
-function toggleFixedVisibility() {
-    const eye = document.getElementById('toggle-eye');
-    const text = document.getElementById('fixed-bal-text');
-    if (text.innerText === "****") {
-        text.innerText = `₦${currentUser.fixedBalance.toLocaleString()}`;
-        eye.classList.replace('fa-eye', 'fa-eye-slash');
-    } else {
-        text.innerText = "****";
-        eye.classList.replace('fa-eye-slash', 'fa-eye');
-    }
+function rePrintReceipt(index) {
+    showReceipt(currentUser.history[index]);
 }
 
-// --- RECEIPT & DOWNLOADS ---
+// --- 7. UTILS ---
 
-function showReceipt(to, amt, remark, ref) {
-    document.getElementById('r-amount').innerText = `₦${amt.toLocaleString()}`;
-    document.getElementById('r-recipient').innerText = to;
-    document.getElementById('r-sender').innerText = currentUser.name;
-    document.getElementById('r-remark').innerText = remark;
-    document.getElementById('r-ref').innerText = ref;
-    document.getElementById('r-date').innerText = new Date().toLocaleString();
-    document.getElementById('receipt-overlay').classList.remove('hidden');
+function switchStep(oldId, newId) {
+    document.getElementById(oldId).classList.add('hidden');
+    document.getElementById(newId).classList.remove('hidden');
 }
 
-function closeReceipt() { document.getElementById('receipt-overlay').classList.add('hidden'); }
+function showSection(id) {
+    document.querySelectorAll('.app-section').forEach(s => s.classList.add('hidden'));
+    document.getElementById(id).classList.remove('hidden');
+}
 
-async function downloadReceipt(type) {
-    const element = document.getElementById('receipt-capture-area');
-    const canvas = await html2canvas(element, { scale: 2 });
-    const imgData = canvas.toDataURL('image/png');
+function openModal(id) { document.getElementById(id).classList.remove('hidden'); }
+function closeModal(id) { document.getElementById(id).classList.add('hidden'); }
 
-    if (type === 'image') {
-        const link = document.createElement('a');
-        link.download = `GrowPay-Receipt-${Date.now()}.png`;
-        link.href = imgData;
-        link.click();
-    } else {
-        const { jsPDF } = window.jspdf;
-        const pdf = new jsPDF('p', 'mm', 'a4');
-        const imgProps = pdf.getImageProperties(imgData);
-        const pdfWidth = pdf.internal.pageSize.getWidth();
-        const pdfHeight = (imgProps.height * pdfWidth) / imgProps.width;
-        pdf.addImage(imgData, 'PNG', 0, 10, pdfWidth, pdfHeight);
-        pdf.save(`GrowPay-Receipt-${Date.now()}.pdf`);
-    }
+function saveData() {
+    localStorage.setItem('growpay_pro_users', JSON.stringify(users));
 }

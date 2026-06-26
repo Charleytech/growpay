@@ -1,85 +1,74 @@
-// --- App State Management ---
+// --- INITIALIZATION & DATA HANDLING ---
 let users = JSON.parse(localStorage.getItem('growpay_users')) || [];
-let currentUser = JSON.parse(sessionStorage.getItem('growpay_session')) || null;
-const ADMIN_PIN = "1234"; 
+let currentUser = JSON.parse(localStorage.getItem('growpay_current_user')) || null;
 
-// Initialize App on Load
-document.addEventListener('DOMContentLoaded', () => {
+const ADMIN_PIN = "1234"; // Default Admin PIN for funding
+
+// Run on page load
+window.onload = () => {
     if (currentUser) {
         showDashboard();
     }
-});
-
-// --- Helper Functions ---
-const saveUsers = () => localStorage.setItem('growpay_users', JSON.stringify(users));
-const updateSession = () => sessionStorage.setItem('growpay_session', JSON.stringify(currentUser));
-const formatCurrency = (num) => "₦" + parseFloat(num).toLocaleString(undefined, { minimumFractionDigits: 2 });
-const generateAccountNumber = () => Math.floor(1000000000 + Math.random() * 9000000000); // 10 Digits
-const generateTransID = () => { // 24 Digits
-    let res = "";
-    for (let i = 0; i < 24; i++) res += Math.floor(Math.random() * 10);
-    return res;
 };
 
-// --- Authentication Logic ---
+// --- AUTHENTICATION ---
 
 function signup() {
     const name = document.getElementById('reg-name').value.trim();
     const bvn = document.getElementById('reg-bvn').value.trim();
-    const addr = document.getElementById('reg-address').value.trim();
+    const address = document.getElementById('reg-address').value.trim();
     const pass = document.getElementById('reg-pass').value.trim();
 
-    if (!name || bvn.length !== 11 || !pass || !addr) {
-        alert("Please fill all fields. BVN/NIN must be 11 digits.");
-        return;
-    }
+    if (!name || !bvn || !address || !pass) return alert("Please fill all fields");
+    if (bvn.length !== 11) return alert("BVN/NIN must be 11 digits");
 
-    // Check if User already exists (Unique Name or BVN/NIN)
-    const existingUser = users.find(u => u.name.toLowerCase() === name.toLowerCase() || u.bvn === bvn);
-    if (existingUser) {
-        alert("An account with this Name or BVN/NIN already exists on this device.");
-        return;
-    }
+    // Check for existing user
+    const existingUser = users.find(u => u.name === name || u.bvn === bvn);
+    if (existingUser) return alert("User with this Name or BVN already exists!");
 
     const newUser = {
-        name,
-        bvn,
-        address: addr,
-        pass,
-        accountNo: generateAccountNumber(),
+        name: name,
+        bvn: bvn,
+        address: address,
+        password: pass,
+        accountNumber: Math.floor(1000000000 + Math.random() * 9000000000).toString(),
         balance: 0,
+        fixedBalance: 0,
+        history: [],
         fixedDeposits: [],
-        shares: [],
-        history: []
+        shares: []
     };
 
     users.push(newUser);
-    saveUsers();
-    alert("Account created successfully! Please login.");
-    location.reload(); // Refresh to login page
-}
-
-function login() {
-    const nameInput = document.getElementById('login-name').value.trim();
-    const passInput = document.getElementById('login-pass').value.trim();
-
-    const user = users.find(u => u.name.toLowerCase() === nameInput.toLowerCase() && u.pass === passInput);
-
-    if (user) {
-        currentUser = user;
-        updateSession();
-        showDashboard();
-    } else {
-        alert("Invalid Full Name or Password.");
-    }
-}
-
-function logout() {
-    sessionStorage.removeItem('growpay_session');
+    saveData();
+    alert("Account Created Successfully! Please login.");
     location.reload();
 }
 
-// --- Navigation & UI Updates ---
+function login() {
+    const name = document.getElementById('login-name').value.trim();
+    const pass = document.getElementById('login-pass').value.trim();
+
+    const user = users.find(u => u.name === name && u.password === pass);
+
+    if (user) {
+        currentUser = user;
+        localStorage.setItem('growpay_current_user', JSON.stringify(currentUser));
+        showDashboard();
+    } else {
+        alert("Invalid Name or Password");
+    }
+}
+
+// Override the inline onclick for login button in HTML if needed
+document.querySelector('#login-form button').onclick = login;
+
+function logout() {
+    localStorage.removeItem('growpay_current_user');
+    location.reload();
+}
+
+// --- UI NAVIGATION ---
 
 function showDashboard() {
     document.getElementById('login-form').classList.add('hidden');
@@ -94,218 +83,263 @@ function showSection(sectionId) {
 }
 
 function updateUI() {
-    document.getElementById('user-display').innerText = `${currentUser.name} | Acc: ${currentUser.accountNo}`;
-    document.getElementById('avail-bal').innerText = formatCurrency(currentUser.balance);
+    if (!currentUser) return;
+
+    document.getElementById('user-display').innerText = `${currentUser.name} | Acct: ${currentUser.accountNumber}`;
+    document.getElementById('avail-bal').innerText = `₦${currentUser.balance.toLocaleString(undefined, {minimumFractionDigits: 2})}`;
     
-    // Update Fixed Table
-    const tbody = document.getElementById('fixed-list-body');
-    tbody.innerHTML = '';
-    currentUser.fixedDeposits.forEach((fd, index) => {
-        tbody.innerHTML += `<tr>
-            <td>${formatCurrency(fd.amount)}</td>
-            <td>${fd.rate}%</td>
-            <td>${fd.expiry}</td>
-            <td><button onclick="liquidateFixed(${index})" style="background:red; color:white; border:none; padding:4px; cursor:pointer">End</button></td>
-        </tr>`;
-    });
+    const fixedText = document.getElementById('fixed-bal-text');
+    if (fixedText.innerText !== "****") {
+        fixedText.innerText = `₦${currentUser.fixedBalance.toLocaleString()}`;
+    }
 
-    // Update Shares Table
-    const shareBody = document.getElementById('shares-list-body');
-    shareBody.innerHTML = '';
-    currentUser.shares.forEach(s => {
-        shareBody.innerHTML += `<tr>
-            <td>${s.units}</td>
-            <td>${formatCurrency(s.cost)}</td>
-            <td>${s.date}</td>
-        </tr>`;
-    });
-
-    // Update History
-    const historyList = document.getElementById('history-list');
-    historyList.innerHTML = currentUser.history.slice().reverse().map(h => `
-        <div style="padding:10px; border-bottom:1px solid #eee; display:flex; justify-content:space-between">
-            <div>
-                <strong style="color:${h.type === 'Credit' ? 'green' : 'red'}">${h.type}</strong><br>
-                <small>${h.remark}</small><br>
-                <small style="color:gray; font-size:10px">${h.date}</small>
-            </div>
-            <div><strong>${formatCurrency(h.amount)}</strong></div>
-        </div>
-    `).join('');
+    renderHistory();
+    renderFixedTable();
+    renderShares();
 }
 
-// --- Features Logic ---
+function saveData() {
+    localStorage.setItem('growpay_users', JSON.stringify(users));
+    if (currentUser) {
+        // Update current user in the main users array
+        const index = users.findIndex(u => u.accountNumber === currentUser.accountNumber);
+        if (index !== -1) users[index] = currentUser;
+        localStorage.setItem('growpay_users', JSON.stringify(users));
+        localStorage.setItem('growpay_current_user', JSON.stringify(currentUser));
+    }
+}
 
-// 1. Admin Funding
+// --- CORE FEATURES ---
+
+// Admin Funding
 function openAdminModal() { document.getElementById('admin-modal').classList.remove('hidden'); }
 function closeModal() { document.getElementById('admin-modal').classList.add('hidden'); }
 
 function adminFund() {
     const pin = document.getElementById('admin-pin').value;
-    const amt = parseFloat(document.getElementById('fund-amt').value);
+    const amount = parseFloat(document.getElementById('fund-amt').value);
 
-    if (pin === ADMIN_PIN && amt > 0) {
-        currentUser.balance += amt;
-        currentUser.history.push({
-            type: 'Credit',
-            amount: amt,
-            remark: 'Admin Wallet Funding',
-            date: new Date().toLocaleString()
-        });
-        saveAndUpdate();
-        closeModal();
-        alert("Success! Wallet Funded.");
-    } else {
-        alert("Invalid PIN or Amount");
-    }
+    if (pin !== ADMIN_PIN) return alert("Incorrect Admin PIN");
+    if (isNaN(amount) || amount <= 0) return alert("Enter valid amount");
+
+    currentUser.balance += amount;
+    addHistory("Credit", `Admin Funding`, amount);
+    
+    saveData();
+    updateUI();
+    closeModal();
+    alert("Wallet Funded Successfully!");
 }
 
-// 2. Bank Transfer & Receipt
+// Transfer logic
 function processTransfer() {
-    const amt = parseFloat(document.getElementById('trans-amount').value);
     const recipient = document.getElementById('trans-name').value;
+    const amount = parseFloat(document.getElementById('trans-amount').value);
     const remark = document.getElementById('trans-remark').value || "Transfer";
 
-    if (amt > 0 && currentUser.balance >= amt) {
-        currentUser.balance -= amt;
-        const ref = generateTransID();
-        const date = new Date().toLocaleString();
-        
-        currentUser.history.push({
-            type: 'Debit',
-            amount: amt,
-            remark: `Transfer to ${recipient}`,
-            date: date
-        });
+    if (!recipient || isNaN(amount) || amount <= 0) return alert("Fill all details correctly");
+    if (amount > currentUser.balance) return alert("Insufficient Balance");
 
-        saveAndUpdate();
-        showReceipt(amt, recipient, remark, ref, date);
-    } else {
-        alert("Insufficient balance.");
-    }
+    currentUser.balance -= amount;
+    const ref = generateRef();
+    addHistory("Debit", `To: ${recipient}`, amount, ref);
+    
+    saveData();
+    updateUI();
+    showReceipt(recipient, amount, remark, ref);
 }
 
-// 3. Fixed Deposit (Instant Interest Logic)
+// Fixed Deposit
 function processFixedDeposit() {
     const amt = parseFloat(document.getElementById('fix-amount').value);
-    const tenorSelect = document.getElementById('fix-tenor');
-    const days = parseInt(tenorSelect.value);
-    const rate = parseInt(tenorSelect.options[tenorSelect.selectedIndex].dataset.rate);
+    const tenor = parseInt(document.getElementById('fix-tenor').value);
+    const rate = parseInt(document.getElementById('fix-tenor').selectedOptions[0].getAttribute('data-rate'));
 
-    if (amt > 0 && currentUser.balance >= amt) {
-        const interest = (amt * (rate / 100));
-        
-        // Deduction of principal + Immediate drop of interest
-        currentUser.balance -= amt; 
-        currentUser.balance += interest;
+    if (isNaN(amt) || amt < 1000) return alert("Minimum fixed amount is ₦1,000");
+    if (amt > currentUser.balance) return alert("Insufficient Balance");
 
-        const expiryDate = new Date();
-        expiryDate.setDate(expiryDate.getDate() + days);
+    const interest = (amt * rate) / 100;
+    const maturityDate = new Date();
+    maturityDate.setDate(maturityDate.getDate() + tenor);
 
-        currentUser.fixedDeposits.push({
-            amount: amt,
-            interestEarned: interest,
-            rate: rate,
-            expiry: expiryDate.toLocaleDateString(),
-            expiryRaw: expiryDate.getTime()
-        });
+    const deposit = {
+        id: Date.now(),
+        amount: amt,
+        interest: interest,
+        tenor: tenor,
+        maturity: maturityDate.toISOString(),
+        status: "Active"
+    };
 
-        currentUser.history.push({
-            type: 'Fixed Deposit',
-            amount: amt,
-            remark: `Fixed ${amt} for ${days} days. Interest of ${interest} added to balance.`,
-            date: new Date().toLocaleString()
-        });
+    currentUser.balance -= amt;
+    currentUser.fixedBalance += amt;
+    // Instruction: drop interest into available balance immediately
+    currentUser.balance += interest; 
 
-        saveAndUpdate();
-        alert(`Fixed successful! Interest of ${formatCurrency(interest)} added to your balance.`);
-    } else {
-        alert("Insufficient balance.");
-    }
+    currentUser.fixedDeposits.push(deposit);
+    addHistory("Fixed Deposit", `Fixed ₦${amt} for ${tenor} days`, amt);
+    
+    saveData();
+    updateUI();
+    alert(`Success! Interest of ₦${interest} added to your balance.`);
 }
 
-function liquidateFixed(index) {
-    const fd = currentUser.fixedDeposits[index];
-    const now = new Date().getTime();
-    
-    // Penalty logic: If before expiry, charge 40% of the interest already dropped
-    if (now < fd.expiryRaw) {
-        const penalty = fd.interestEarned * 0.40;
-        alert(`Note: Early liquidation before expiry date. A penalty of 40% of earned interest (${formatCurrency(penalty)}) has been deducted.`);
-        currentUser.balance -= penalty;
+function renderFixedTable() {
+    const body = document.getElementById('fixed-list-body');
+    body.innerHTML = "";
+    currentUser.fixedDeposits.forEach(d => {
+        const isMatured = new Date() > new Date(d.maturity);
+        body.innerHTML += `
+            <tr>
+                <td>₦${d.amount}</td>
+                <td>₦${d.interest}</td>
+                <td>${new Date(d.maturity).toLocaleDateString()}</td>
+                <td>
+                    <button onclick="liquidate(${d.id})" class="${isMatured ? 'matured-btn' : 'early-btn'}">
+                        ${isMatured ? 'Withdraw' : 'End Early'}
+                    </button>
+                </td>
+            </tr>
+        `;
+    });
+}
+
+function liquidate(id) {
+    const index = currentUser.fixedDeposits.findIndex(d => d.id === id);
+    const dep = currentUser.fixedDeposits[index];
+    const isMatured = new Date() > new Date(dep.maturity);
+
+    if (!isMatured) {
+        const penalty = dep.interest * 0.40;
+        if (!confirm(`Early liquidation attracts 40% penalty on interest (₦${penalty}). Proceed?`)) return;
+        currentUser.balance -= penalty; // Deduct penalty because interest was already paid
     }
 
-    currentUser.balance += fd.amount; // Refund principal
+    currentUser.balance += dep.amount;
+    currentUser.fixedBalance -= dep.amount;
     currentUser.fixedDeposits.splice(index, 1);
     
-    currentUser.history.push({
-        type: 'Credit',
-        amount: fd.amount,
-        remark: 'Fixed Principal Returned',
-        date: new Date().toLocaleString()
-    });
-
-    saveAndUpdate();
+    addHistory("Liquidation", `Closed Fix: ₦${dep.amount}`, dep.amount);
+    saveData();
+    updateUI();
 }
 
-// 4. Shares Investment
+// Shares
 function buyShares() {
     const qty = parseInt(document.getElementById('share-qty').value);
-    const pricePerUnit = 500; // Fixed price for logic
+    const pricePerUnit = 500; 
     const total = qty * pricePerUnit;
 
-    if (qty > 0 && currentUser.balance >= total) {
-        currentUser.balance -= total;
-        currentUser.shares.push({
-            units: qty,
-            cost: total,
-            date: new Date().toLocaleString()
-        });
-        
-        currentUser.history.push({
-            type: 'Debit',
-            amount: total,
-            remark: `Purchased ${qty} shares units`,
-            date: new Date().toLocaleString()
-        });
+    if (isNaN(qty) || qty <= 0) return alert("Enter valid units");
+    if (total > currentUser.balance) return alert("Insufficient Balance");
 
-        saveAndUpdate();
-        alert("Shares purchased successfully!");
+    currentUser.balance -= total;
+    currentUser.shares.push({
+        units: qty,
+        price: pricePerUnit,
+        total: total,
+        date: new Date().toISOString(),
+        dividend: "12% Annually"
+    });
+
+    addHistory("Investment", `Bought ${qty} share units`, total);
+    saveData();
+    updateUI();
+    alert("Shares purchased successfully!");
+}
+
+function renderShares() {
+    const body = document.getElementById('shares-list-body');
+    body.innerHTML = "";
+    currentUser.shares.forEach(s => {
+        body.innerHTML += `
+            <tr>
+                <td>${s.units}</td>
+                <td>₦${s.total}</td>
+                <td>${new Date().toLocaleDateString()}</td>
+            </tr>
+        `;
+    });
+}
+
+// --- HELPERS ---
+
+function generateRef() {
+    // Generate 24 digit OPay style transaction number
+    return Math.random().toString().slice(2, 14) + Math.random().toString().slice(2, 14);
+}
+
+function addHistory(type, desc, amt, ref = null) {
+    currentUser.history.unshift({
+        type, 
+        desc, 
+        amt, 
+        ref: ref || generateRef().slice(0,10),
+        date: new Date().toLocaleString()
+    });
+}
+
+function renderHistory() {
+    const container = document.getElementById('history-list');
+    container.innerHTML = currentUser.history.length === 0 ? "<p>No transactions yet</p>" : "";
+    currentUser.history.forEach(h => {
+        container.innerHTML += `
+            <div class="history-item">
+                <div class="h-info">
+                    <strong>${h.type}: ${h.desc}</strong>
+                    <small>${h.date}</small>
+                </div>
+                <div class="h-amt ${h.type === 'Credit' || h.type === 'Liquidation' ? 'txt-green' : 'txt-red'}">
+                    ${h.type === 'Credit' || h.type === 'Liquidation' ? '+' : '-'}₦${h.amt.toLocaleString()}
+                </div>
+            </div>
+        `;
+    });
+}
+
+function toggleFixedVisibility() {
+    const eye = document.getElementById('toggle-eye');
+    const text = document.getElementById('fixed-bal-text');
+    if (text.innerText === "****") {
+        text.innerText = `₦${currentUser.fixedBalance.toLocaleString()}`;
+        eye.classList.replace('fa-eye', 'fa-eye-slash');
     } else {
-        alert("Insufficient balance or invalid quantity.");
+        text.innerText = "****";
+        eye.classList.replace('fa-eye-slash', 'fa-eye');
     }
 }
 
-// --- UI Receipt and Saving Logic ---
+// --- RECEIPT & DOWNLOADS ---
 
-function showReceipt(amt, recipient, remark, ref, date) {
-    document.getElementById('r-amount').innerText = formatCurrency(amt);
-    document.getElementById('r-recipient').innerText = recipient;
+function showReceipt(to, amt, remark, ref) {
+    document.getElementById('r-amount').innerText = `₦${amt.toLocaleString()}`;
+    document.getElementById('r-recipient').innerText = to;
     document.getElementById('r-sender').innerText = currentUser.name;
     document.getElementById('r-remark').innerText = remark;
     document.getElementById('r-ref').innerText = ref;
-    document.getElementById('r-date').innerText = date;
+    document.getElementById('r-date').innerText = new Date().toLocaleString();
     document.getElementById('receipt-overlay').classList.remove('hidden');
 }
 
 function closeReceipt() { document.getElementById('receipt-overlay').classList.add('hidden'); }
 
-function saveAndUpdate() {
-    const idx = users.findIndex(u => u.accountNo === currentUser.accountNo);
-    users[idx] = currentUser;
-    saveUsers();
-    updateSession();
-    updateUI();
-}
+async function downloadReceipt(type) {
+    const element = document.getElementById('receipt-capture-area');
+    const canvas = await html2canvas(element, { scale: 2 });
+    const imgData = canvas.toDataURL('image/png');
 
-let fixedVisible = false;
-function toggleFixedVisibility() {
-    fixedVisible = !fixedVisible;
-    const text = document.getElementById('fixed-bal-text');
-    if (fixedVisible) {
-        const total = currentUser.fixedDeposits.reduce((s, f) => s + f.amount, 0);
-        text.innerText = formatCurrency(total);
+    if (type === 'image') {
+        const link = document.createElement('a');
+        link.download = `GrowPay-Receipt-${Date.now()}.png`;
+        link.href = imgData;
+        link.click();
     } else {
-        text.innerText = "****";
+        const { jsPDF } = window.jspdf;
+        const pdf = new jsPDF('p', 'mm', 'a4');
+        const imgProps = pdf.getImageProperties(imgData);
+        const pdfWidth = pdf.internal.pageSize.getWidth();
+        const pdfHeight = (imgProps.height * pdfWidth) / imgProps.width;
+        pdf.addImage(imgData, 'PNG', 0, 10, pdfWidth, pdfHeight);
+        pdf.save(`GrowPay-Receipt-${Date.now()}.pdf`);
     }
 }
